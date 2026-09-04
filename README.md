@@ -1,5 +1,7 @@
 # CapFence
 
+[English](README.md) | [简体中文](README.zh-CN.md)
+
 Capability-diff security for AI agent skills and MCP servers.
 
 CapFence statically inspects a repository and answers a practical review question: **what can this agent, skill, server, or build hook do, and did that capability change?** It never executes commands from the scanned tree.
