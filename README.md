@@ -80,6 +80,12 @@ Capability identity is the normalized `kind + scope`, not the source location. M
 
 Baselines also retain stable finding identities. With `--fail-on`, findings already present in a baseline do not fail a later scan unless `--fail-existing` is supplied.
 
+Export a stable JSON graph for visualizations and PR summaries:
+
+```bash
+node dist/cli.js graph . --output capfence.graph.json
+```
+
 ## Policy
 
 Use a small YAML policy to deny capabilities introduced by a change and to restrict network hosts:

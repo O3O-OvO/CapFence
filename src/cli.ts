@@ -6,6 +6,7 @@ import { diffBaseline, findingFingerprint, toBaseline } from "./baseline.js";
 import { scanTarget } from "./analyzer.js";
 import { loadPolicy, evaluatePolicy } from "./policy.js";
 import { formatGithub, formatJson, formatSarif, formatText } from "./reporters.js";
+import { buildCapabilityGraph } from "./graph.js";
 import type { Baseline, ReportFormat, Severity } from "./types.js";
 
 const VERSION = "0.1.0";
@@ -24,6 +25,7 @@ Usage:
   capfence scan <path> [options]       Scan supported files without executing them
   capfence baseline <path> [options]   Write a capability baseline
   capfence diff <path> [options]       Compare capabilities with a baseline
+  capfence graph <path> [options]      Export a capability relationship graph
 
 Options:
   --format text|json|sarif|github       Output format (default: text)
@@ -98,10 +100,14 @@ function main(): void {
     writeOutput(VERSION);
     return;
   }
-  if (!["scan", "baseline", "diff"].includes(command)) throw new Error(`Unknown command: ${command}\n\n${usage()}`);
+  if (!["scan", "baseline", "diff", "graph"].includes(command)) throw new Error(`Unknown command: ${command}\n\n${usage()}`);
   const target = validateArguments();
   if (command === "diff" && !option("--baseline")) throw new Error("diff requires --baseline <file>");
   const result = scanTarget(target);
+  if (command === "graph") {
+    writeOutput(JSON.stringify(buildCapabilityGraph(result), null, 2));
+    return;
+  }
   const baselinePath = option("--baseline");
   const policyPath = option("--policy");
   const formatValue = option("--format") ?? "text";

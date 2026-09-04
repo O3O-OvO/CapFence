@@ -80,6 +80,12 @@ node dist/cli.js diff path/to/project --baseline capfence.baseline.json
 
 基线还保存稳定的发现身份。使用 `--fail-on` 时，已存在于基线中的发现不会导致后续扫描失败，除非指定 `--fail-existing`。
 
+导出可用于可视化和 Pull Request 摘要的稳定 JSON 能力图：
+
+```bash
+node dist/cli.js graph path/to/project --output capfence.graph.json
+```
+
 ## 策略
 
 使用简洁的 YAML 策略拒绝新增能力，并限制网络主机：

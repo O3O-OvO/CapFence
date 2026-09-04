@@ -83,4 +83,16 @@ describe("CLI black-box contract", () => {
     expect(result.status).toBe(2);
     expect(result.stderr).toContain("Invalid baseline");
   });
+
+  it("exports a deterministic capability graph", () => {
+    const graph = runCli("graph", path.join(fixtures, "risky", "composite"));
+    expect(graph.status).toBe(0);
+    const report = JSON.parse(graph.stdout) as { schemaVersion: number; nodes: Array<{ type: string }>; edges: Array<{ type: string }> };
+    expect(report.schemaVersion).toBe(1);
+    expect(report.nodes.some((node) => node.type === "target")).toBe(true);
+    expect(report.nodes.some((node) => node.type === "source")).toBe(true);
+    expect(report.nodes.some((node) => node.type === "capability")).toBe(true);
+    expect(report.nodes.some((node) => node.type === "finding")).toBe(true);
+    expect(report.edges.map((edge) => edge.type)).toEqual(expect.arrayContaining(["contains", "declares", "evidences"]));
+  });
 });

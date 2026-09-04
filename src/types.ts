@@ -103,3 +103,29 @@ export interface PolicyViolation {
 export interface PolicyResult {
   violations: PolicyViolation[];
 }
+
+export type GraphNodeType = "target" | "source" | "capability" | "finding";
+
+export interface CapabilityGraphNode {
+  id: string;
+  type: GraphNodeType;
+  label: string;
+  kind?: CapabilityKind;
+  scope?: string;
+  severity?: Severity;
+  location?: Location;
+}
+
+export interface CapabilityGraphEdge {
+  id: string;
+  from: string;
+  to: string;
+  type: "contains" | "declares" | "evidences";
+}
+
+export interface CapabilityGraph {
+  schemaVersion: 1;
+  target: string;
+  nodes: CapabilityGraphNode[];
+  edges: CapabilityGraphEdge[];
+}
