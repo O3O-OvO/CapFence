@@ -10,3 +10,5 @@ audit.sarif
 bad.err
 selfdiff.out
 selfscan-*.out
+diff-json.out
+missing.err
