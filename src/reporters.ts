@@ -57,8 +57,12 @@ export function formatJson(result: ScanResult, changes?: CapabilityChange[], pol
   return JSON.stringify({ ...result, ...(changes ? { changes } : {}), ...(policy ? { policy } : {}) }, null, 2);
 }
 
-export function formatSarif(result: ScanResult, toolVersion = "0.1.0"): string {
+export function formatSarif(result: ScanResult, toolVersion = "0.1.0", changes: CapabilityChange[] = [], policy?: PolicyResult): string {
   const rules = new Map(result.findings.map((finding) => [finding.id, finding]));
+  const capabilityRuleIds = new Set<string>();
+  if (changes.some((change) => change.type === "added")) capabilityRuleIds.add("CF-CAP-001");
+  if (changes.some((change) => change.type === "widened")) capabilityRuleIds.add("CF-CAP-002");
+  if (policy?.violations.length) capabilityRuleIds.add("CF-POLICY-001");
   const sarif = {
     version: "2.1.0",
     $schema: "https://json.schemastore.org/sarif-2.1.0.json",
@@ -68,32 +72,76 @@ export function formatSarif(result: ScanResult, toolVersion = "0.1.0"): string {
           name: "CapFence",
           version: toolVersion,
           informationUri: "https://github.com/O3O-OvO/CapFence",
-          rules: [...rules.values()].map((finding) => ({
+          rules: [
+            ...Array.from(rules.values()).map((finding) => ({
             id: finding.id,
             shortDescription: { text: finding.title },
             fullDescription: { text: finding.message },
             help: { text: finding.remediation },
             defaultConfiguration: { level: finding.severity === "critical" || finding.severity === "high" ? "error" : "warning" },
-          })),
+            })),
+            ...(capabilityRuleIds.has("CF-CAP-001") ? [{
+              id: "CF-CAP-001",
+              shortDescription: { text: "New capability added" },
+              fullDescription: { text: "A capability was added compared with the checked-in baseline." },
+              defaultConfiguration: { level: "error" },
+            }] : []),
+            ...(capabilityRuleIds.has("CF-CAP-002") ? [{
+              id: "CF-CAP-002",
+              shortDescription: { text: "Capability widened" },
+              fullDescription: { text: "An existing capability became broader than the checked-in baseline." },
+              defaultConfiguration: { level: "error" },
+            }] : []),
+            ...(capabilityRuleIds.has("CF-POLICY-001") ? [{
+              id: "CF-POLICY-001",
+              shortDescription: { text: "Capability violates policy" },
+              fullDescription: { text: "A newly added or widened capability violates the configured CapFence policy." },
+              defaultConfiguration: { level: "error" },
+            }] : []),
+          ],
         },
       },
-      results: result.findings.map((finding) => ({
-        ruleId: finding.id,
-        level: finding.severity === "critical" || finding.severity === "high" ? "error" : "warning",
-        message: { text: `${finding.title}: ${finding.message}` },
-        properties: { evidence: finding.evidence },
-        locations: [{
-          physicalLocation: {
-            artifactLocation: { uri: finding.location.file },
-            region: {
-              startLine: finding.location.startLine,
-              startColumn: finding.location.startColumn,
-              endLine: finding.location.endLine,
-              endColumn: finding.location.endColumn,
+      results: [
+        ...result.findings.map((finding) => ({
+          ruleId: finding.id,
+          level: finding.severity === "critical" || finding.severity === "high" ? "error" : "warning",
+          message: { text: `${finding.title}: ${finding.message}` },
+          properties: { evidence: finding.evidence },
+          locations: [{
+            physicalLocation: {
+              artifactLocation: { uri: finding.location.file },
+              region: {
+                startLine: finding.location.startLine,
+                startColumn: finding.location.startColumn,
+                endLine: finding.location.endLine,
+                endColumn: finding.location.endColumn,
+              },
             },
-          },
-        }],
-      })),
+          }],
+        })),
+        ...changes.filter((change) => change.type === "added" || change.type === "widened").map((change) => {
+          const capability = change.current;
+          if (!capability) return undefined;
+          const source = result.capabilities.find((item) => item.kind === capability.kind && item.scope === capability.scope);
+          return {
+            ruleId: change.type === "added" ? "CF-CAP-001" : "CF-CAP-002",
+            level: "error",
+            message: { text: `${change.type === "added" ? "Added" : "Widened"} capability: ${capability.kind}:${capability.scope}` },
+            properties: { changeType: change.type, capability: `${capability.kind}:${capability.scope}` },
+            ...(source ? { locations: [{ physicalLocation: { artifactLocation: { uri: source.location.file }, region: { startLine: source.location.startLine, startColumn: source.location.startColumn, endLine: source.location.endLine, endColumn: source.location.endColumn } } }] } : {}),
+          };
+        }).filter((item): item is NonNullable<typeof item> => Boolean(item)),
+        ...(policy?.violations ?? []).map((violation) => {
+          const source = result.capabilities.find((item) => item.kind === violation.capability.kind && item.scope === violation.capability.scope);
+          return {
+            ruleId: "CF-POLICY-001",
+            level: violation.severity === "critical" || violation.severity === "high" ? "error" : "warning",
+            message: { text: `Policy violation: ${violation.capability.kind}:${violation.capability.scope} - ${violation.reason}` },
+            properties: { capability: `${violation.capability.kind}:${violation.capability.scope}`, reason: violation.reason },
+            ...(source ? { locations: [{ physicalLocation: { artifactLocation: { uri: source.location.file }, region: { startLine: source.location.startLine, startColumn: source.location.startColumn, endLine: source.location.endLine, endColumn: source.location.endColumn } } }] } : {}),
+          };
+        }),
+      ],
     }],
   };
   return JSON.stringify(sarif, null, 2);

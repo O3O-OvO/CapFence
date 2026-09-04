@@ -97,4 +97,18 @@ describe("report formats", () => {
     expect(sarif.runs[0]?.results[0]?.locations[0]?.physicalLocation.region.startLine).toBeGreaterThan(1);
     expect(formatGithub(result)).toMatch(/::(?:error|warning) file=run\.sh,line=\d+,col=\d+/);
   });
+
+  it("includes capability changes and policy violations in SARIF", () => {
+    const result = baseResult("dynamic");
+    const changes = diffBaseline(toBaseline(baseResult("https|api.example.com")), result).changes;
+    const policy = evaluatePolicy(changes, { deny: [{ capability: "network.connect", scope: "dynamic", severity: "critical", reason: "Dynamic hosts require review" }] });
+    const sarif = JSON.parse(formatSarif(result, "0.1.0", changes, policy)) as {
+      runs: Array<{ tool: { driver: { rules: Array<{ id: string }> } }; results: Array<{ ruleId: string; message: { text: string } }> }>;
+    };
+    const rules = sarif.runs[0]?.tool.driver.rules.map((rule) => rule.id) ?? [];
+    const results = sarif.runs[0]?.results ?? [];
+    expect(rules).toEqual(expect.arrayContaining(["CF-CAP-002", "CF-POLICY-001"]));
+    expect(results.map((item) => item.ruleId)).toEqual(expect.arrayContaining(["CF-CAP-002", "CF-POLICY-001"]));
+    expect(results.some((item) => item.message.text.includes("Dynamic hosts require review"))).toBe(true);
+  });
 });

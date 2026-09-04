@@ -122,7 +122,7 @@ function main(): void {
   const output = format === "json"
     ? formatJson(result, diff?.changes, policy)
     : format === "sarif"
-      ? formatSarif(result, VERSION)
+      ? formatSarif(result, VERSION, diff?.changes, policy)
       : format === "github"
         ? formatGithub(result, diff?.changes, policy)
         : formatText(result, diff?.changes, policy);
