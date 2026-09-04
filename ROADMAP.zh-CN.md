@@ -23,7 +23,7 @@ CapFence 的长期目标是成为 AI Agent Skill 与 MCP Server 的权限变化�
 node dist/cli.js graph path/to/skill-or-mcp-config
 ```
 
-输出是稳定排序的 JSON，节点类型包括 `target`、`source`、`capability`、`finding`，边类型包括 `contains`、`declares`、`evidences`。它可以直接作为 PR 摘要、Web 可视化或后续运行时事件关联的输入。
+输出是稳定排序的 JSON，节点类型包括 `target`、`source`、`subject`、`resource`、`capability`、`finding`，边类型包括 `contains`、`declares`、`evidences`、`uses`。传入 `--baseline` 后，能力节点还会带有 `added`、`removed` 或 `widened` 标记。它可以直接作为 PR 摘要、Web 可视化或后续运行时事件关联的输入。
 
 ## 后续阶段
 

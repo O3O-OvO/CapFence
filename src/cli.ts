@@ -105,7 +105,10 @@ function main(): void {
   if (command === "diff" && !option("--baseline")) throw new Error("diff requires --baseline <file>");
   const result = scanTarget(target);
   if (command === "graph") {
-    writeOutput(JSON.stringify(buildCapabilityGraph(result), null, 2));
+    const baselinePath = option("--baseline");
+    const graphBaseline = baselinePath ? readBaseline(baselinePath) : undefined;
+    const graphChanges = graphBaseline ? diffBaseline(graphBaseline, result).changes : [];
+    writeOutput(JSON.stringify(buildCapabilityGraph(result, graphChanges), null, 2));
     return;
   }
   const baselinePath = option("--baseline");

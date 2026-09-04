@@ -99,10 +99,24 @@ describe("CLI black-box contract", () => {
   it("exposes MCP subjects and resource relationships in the graph", () => {
     const graph = runCli("graph", path.join(fixtures, "safe", "mcp-authenticated-remote"));
     expect(graph.status).toBe(0);
-    const report = JSON.parse(graph.stdout) as { nodes: Array<{ type: string; id: string; resourceType?: string }>; edges: Array<{ type: string }> };
+    const report = JSON.parse(graph.stdout) as { nodes: Array<{ type: string; id: string; resourceType?: string; evidence?: string; confidence?: string; subjects?: string[] }>; edges: Array<{ type: string }> };
     expect(report.nodes.some((node) => node.type === "subject" && node.id.includes("mcp:mcpServers:github"))).toBe(true);
     expect(report.nodes.some((node) => node.type === "resource" && node.resourceType === "network" && node.id.includes("api.github.com"))).toBe(true);
     expect(report.nodes.some((node) => node.type === "resource" && node.resourceType === "credential" && node.id.includes("injected-env:github_token"))).toBe(true);
     expect(report.edges.some((edge) => edge.type === "uses")).toBe(true);
+    const capability = report.nodes.find((node) => node.type === "capability" && node.id.includes("network.connect"));
+    expect(capability?.evidence).toContain("api.github.com");
+    expect(capability?.confidence).toBe("high");
+    expect(capability?.subjects).toContain("mcp:mcpServers:github");
+  });
+
+  it("annotates graph capabilities with baseline change types", () => {
+    const baselinePath = path.join(tempRoot, "graph-baseline.json");
+    const baseline = runCli("baseline", path.join(fixtures, "safe", "mcp-authenticated-remote"), "--output", baselinePath);
+    expect(baseline.status).toBe(0);
+    const graph = runCli("graph", path.join(fixtures, "risky", "mcp"), "--baseline", baselinePath);
+    expect(graph.status).toBe(0);
+    const report = JSON.parse(graph.stdout) as { nodes: Array<{ type: string; changeType?: string }> };
+    expect(report.nodes.some((node) => node.type === "capability" && (node.changeType === "added" || node.changeType === "widened"))).toBe(true);
   });
 });

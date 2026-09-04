@@ -84,6 +84,8 @@ node dist/cli.js diff path/to/project --baseline capfence.baseline.json
 
 ```bash
 node dist/cli.js graph path/to/project --output capfence.graph.json
+# 添加 --baseline 后，能力节点会标注 added、removed 或 widened。
+node dist/cli.js graph path/to/project --baseline capfence.baseline.json --output capfence.graph.json
 ```
 
 ## 策略

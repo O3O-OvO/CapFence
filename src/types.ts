@@ -113,6 +113,12 @@ export interface CapabilityGraphNode {
   kind?: CapabilityKind;
   scope?: string;
   resourceType?: "network" | "process" | "credential";
+  source?: Capability["source"];
+  subject?: string;
+  subjects?: string[];
+  evidence?: string;
+  confidence?: "high" | "medium" | "low";
+  changeType?: "added" | "removed" | "widened";
   severity?: Severity;
   location?: Location;
 }

@@ -1,4 +1,4 @@
-import type { CapabilityGraph, CapabilityGraphEdge, CapabilityGraphNode, ScanResult } from "./types.js";
+import type { CapabilityChange, CapabilityGraph, CapabilityGraphEdge, CapabilityGraphNode, ScanResult } from "./types.js";
 
 function sourceNodeId(file: string): string {
   return `source:${file}`;
@@ -20,7 +20,16 @@ function resourceNodeId(type: "network" | "process" | "credential", scope: strin
   return `resource:${type}|${scope}`;
 }
 
-export function buildCapabilityGraph(result: ScanResult): CapabilityGraph {
+function confidenceFor(source: "runtime" | "configuration" | "lifecycle" | "build" | "instruction"): "high" | "medium" {
+  return source === "configuration" || source === "lifecycle" || source === "build" ? "high" : "medium";
+}
+
+export function buildCapabilityGraph(result: ScanResult, changes: CapabilityChange[] = []): CapabilityGraph {
+  const changeByFingerprint = new Map<string, CapabilityChange["type"]>();
+  for (const change of changes) {
+    const capability = change.current ?? change.previous?.[0];
+    if (capability) changeByFingerprint.set(`${capability.kind}|${capability.scope}`, change.type);
+  }
   const targetId = "target:root";
   const nodes = new Map<string, CapabilityGraphNode>([
     [targetId, { id: targetId, type: "target", label: result.target }],
@@ -43,8 +52,20 @@ export function buildCapabilityGraph(result: ScanResult): CapabilityGraph {
         label: `${capability.kind}:${capability.scope}`,
         kind: capability.kind,
         scope: capability.scope,
+        source: capability.source,
+        ...(capability.subject ? { subject: capability.subject, subjects: [capability.subject] } : {}),
+        evidence: capability.evidence,
+        confidence: confidenceFor(capability.source),
+        ...(changeByFingerprint.has(`${capability.kind}|${capability.scope}`) ? { changeType: changeByFingerprint.get(`${capability.kind}|${capability.scope}`) } : {}),
         location: capability.location,
       });
+    } else {
+      const existing = nodes.get(capabilityId)!;
+      if (capability.subject && existing.type === "capability") {
+        const subjects = new Set(existing.subjects ?? (existing.subject ? [existing.subject] : []));
+        subjects.add(capability.subject);
+        existing.subjects = [...subjects].sort();
+      }
     }
     addEdge(targetId, sourceId, "contains");
     addEdge(sourceId, capabilityId, "declares");
@@ -70,6 +91,10 @@ export function buildCapabilityGraph(result: ScanResult): CapabilityGraph {
           label: `${resourceType}:${capability.scope}`,
           scope: capability.scope,
           resourceType,
+          source: capability.source,
+          ...(capability.subject ? { subject: capability.subject } : {}),
+          evidence: capability.evidence,
+          confidence: confidenceFor(capability.source),
           location: capability.location,
         });
       }
@@ -94,6 +119,22 @@ export function buildCapabilityGraph(result: ScanResult): CapabilityGraph {
       const capabilityId = capabilityNodeId(kind, scope);
       if (nodes.has(capabilityId)) addEdge(findingId, capabilityId, "evidences");
     }
+  }
+
+  for (const change of changes) {
+    if (change.type !== "removed" || !change.previous?.[0]) continue;
+    const capability = change.previous[0];
+    const capabilityId = capabilityNodeId(capability.kind, capability.scope);
+    if (!nodes.has(capabilityId)) nodes.set(capabilityId, {
+      id: capabilityId,
+      type: "capability",
+      label: `${capability.kind}:${capability.scope}`,
+      kind: capability.kind,
+      scope: capability.scope,
+      source: capability.source,
+      confidence: "high",
+      changeType: "removed",
+    });
   }
 
   return {

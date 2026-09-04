@@ -84,6 +84,8 @@ Export a stable JSON graph for visualizations and PR summaries:
 
 ```bash
 node dist/cli.js graph . --output capfence.graph.json
+# Add --baseline to annotate capability nodes as added, removed, or widened.
+node dist/cli.js graph . --baseline capfence.baseline.json --output capfence.graph.json
 ```
 
 ## Policy
