@@ -104,7 +104,7 @@ export interface PolicyResult {
   violations: PolicyViolation[];
 }
 
-export type GraphNodeType = "target" | "source" | "capability" | "finding";
+export type GraphNodeType = "target" | "source" | "subject" | "resource" | "capability" | "finding";
 
 export interface CapabilityGraphNode {
   id: string;
@@ -112,6 +112,7 @@ export interface CapabilityGraphNode {
   label: string;
   kind?: CapabilityKind;
   scope?: string;
+  resourceType?: "network" | "process" | "credential";
   severity?: Severity;
   location?: Location;
 }
@@ -120,7 +121,7 @@ export interface CapabilityGraphEdge {
   id: string;
   from: string;
   to: string;
-  type: "contains" | "declares" | "evidences";
+  type: "contains" | "declares" | "evidences" | "uses";
 }
 
 export interface CapabilityGraph {

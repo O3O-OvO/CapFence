@@ -95,4 +95,14 @@ describe("CLI black-box contract", () => {
     expect(report.nodes.some((node) => node.type === "finding")).toBe(true);
     expect(report.edges.map((edge) => edge.type)).toEqual(expect.arrayContaining(["contains", "declares", "evidences"]));
   });
+
+  it("exposes MCP subjects and resource relationships in the graph", () => {
+    const graph = runCli("graph", path.join(fixtures, "safe", "mcp-authenticated-remote"));
+    expect(graph.status).toBe(0);
+    const report = JSON.parse(graph.stdout) as { nodes: Array<{ type: string; id: string; resourceType?: string }>; edges: Array<{ type: string }> };
+    expect(report.nodes.some((node) => node.type === "subject" && node.id.includes("mcp:mcpServers:github"))).toBe(true);
+    expect(report.nodes.some((node) => node.type === "resource" && node.resourceType === "network" && node.id.includes("api.github.com"))).toBe(true);
+    expect(report.nodes.some((node) => node.type === "resource" && node.resourceType === "credential" && node.id.includes("injected-env:github_token"))).toBe(true);
+    expect(report.edges.some((edge) => edge.type === "uses")).toBe(true);
+  });
 });

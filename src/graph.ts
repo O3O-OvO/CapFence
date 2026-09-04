@@ -12,6 +12,14 @@ function findingNodeId(id: string, file: string, line: number): string {
   return `finding:${id}|${file}|${line}`;
 }
 
+function subjectNodeId(subject: string): string {
+  return `subject:${subject}`;
+}
+
+function resourceNodeId(type: "network" | "process" | "credential", scope: string): string {
+  return `resource:${type}|${scope}`;
+}
+
 export function buildCapabilityGraph(result: ScanResult): CapabilityGraph {
   const targetId = "target:root";
   const nodes = new Map<string, CapabilityGraphNode>([
@@ -40,6 +48,33 @@ export function buildCapabilityGraph(result: ScanResult): CapabilityGraph {
     }
     addEdge(targetId, sourceId, "contains");
     addEdge(sourceId, capabilityId, "declares");
+    const ownerId = capability.subject ? subjectNodeId(capability.subject) : sourceId;
+    if (capability.subject) {
+      if (!nodes.has(ownerId)) nodes.set(ownerId, { id: ownerId, type: "subject", label: capability.subject });
+      addEdge(sourceId, ownerId, "contains");
+      addEdge(ownerId, capabilityId, "declares");
+    }
+    const resourceType = capability.kind === "network.connect"
+      ? "network"
+      : capability.kind === "process.execute"
+        ? "process"
+        : capability.kind === "credential.read"
+          ? "credential"
+          : undefined;
+    if (resourceType) {
+      const resourceId = resourceNodeId(resourceType, capability.scope);
+      if (!nodes.has(resourceId)) {
+        nodes.set(resourceId, {
+          id: resourceId,
+          type: "resource",
+          label: `${resourceType}:${capability.scope}`,
+          scope: capability.scope,
+          resourceType,
+          location: capability.location,
+        });
+      }
+      addEdge(ownerId, resourceId, "uses");
+    }
   }
 
   for (const finding of result.findings) {
