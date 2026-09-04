@@ -44,17 +44,17 @@ pnpm install
 pnpm run build
 
 # Scan a skill, MCP configuration, or repository
-npx capfence scan .
+node dist/cli.js scan .
 
 # Machine-readable output
-npx capfence scan . --format json
-npx capfence scan . --format sarif --output capfence.sarif
+node dist/cli.js scan . --format json
+node dist/cli.js scan . --format sarif --output capfence.sarif
 
 # GitHub workflow annotations
-npx capfence scan . --format github
+node dist/cli.js scan . --format github
 ```
 
-The CLI is also available after a local build:
+The npm package has not been published yet. Use the local built CLI above; after npm publication, the same commands can be shortened to `npx capfence`.
 
 ```bash
 node dist/cli.js scan path/to/project --format text
@@ -67,13 +67,13 @@ Supported input files are Markdown skill/instruction files, JSON/JSONC, YAML, Ja
 Create a reviewable baseline and commit it with the repository:
 
 ```bash
-npx capfence baseline . --output capfence.baseline.json
+node dist/cli.js baseline . --output capfence.baseline.json
 ```
 
 Compare future changes:
 
 ```bash
-npx capfence diff . --baseline capfence.baseline.json
+node dist/cli.js diff . --baseline capfence.baseline.json
 ```
 
 Capability identity is the normalized `kind + scope`, not the source location. Moving the same launcher does not create a permission change. A new host is shown as `added` and the old host as `removed`; a static host becoming `dynamic` is shown as `widened`. By default, `diff` and any scan supplied with `--baseline` fail when capabilities are added or widened. Use `--allow-changes` when a workflow wants reporting without blocking.
@@ -101,7 +101,7 @@ network:
 Evaluate it with a baseline:
 
 ```bash
-npx capfence diff . \
+node dist/cli.js diff . \
   --baseline capfence.baseline.json \
   --policy examples/policy.yml \
   --format github \
@@ -112,7 +112,7 @@ Policy checks apply to `added` and `widened` capabilities. Removed capabilities 
 
 ## GitHub Actions
 
-CapFence ships as a reusable composite action. Pin the repository to a commit in production workflows:
+CapFence ships as a reusable composite action. It provisions Node.js 20 for its own build and scan steps. Pin the repository to a commit in production workflows:
 
 ```yaml
 name: CapFence

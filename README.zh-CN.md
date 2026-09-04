@@ -112,7 +112,7 @@ node dist/cli.js diff path/to/project \
 
 ## GitHub Actions
 
-CapFence 提供可复用 Composite Action。Action 假设使用 GitHub-hosted Ubuntu runner，并在当前发布版本中使用 Node 20 与 Corepack/pnpm。生产工作流应固定到经过审查的提交 SHA，而不是浮动分支名：
+CapFence 提供可复用 Composite Action。Action 会为自身的构建和扫描步骤准备 Node 20 与 Corepack/pnpm，并假设使用 GitHub-hosted Ubuntu runner。生产工作流仍应固定到经过审查的提交 SHA，而不是浮动分支名：
 
 ```yaml
 name: CapFence
