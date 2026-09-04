@@ -19,6 +19,7 @@
     "build": "tsc -p tsconfig.json",
     "check": "tsc --noEmit -p tsconfig.json",
     "test": "vitest run",
+    "pretest": "pnpm run build",
     "test:watch": "vitest",
     "prepare": "npm run build",
     "prepack": "npm run build"
