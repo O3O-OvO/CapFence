@@ -70,6 +70,10 @@ function isSupportedFile(filePath: string, content: string): boolean {
   return /^(?:#!.*\b(?:sh|bash|zsh|pwsh|powershell)\b)/.test(content.slice(0, 160));
 }
 
+export function isSupportedPath(filePath: string, content = ""): boolean {
+  return isSupportedFile(filePath, content);
+}
+
 function readSource(root: string, filePath: string, maxFileBytes: number): SourceFile | undefined {
   let stat: fs.Stats;
   try {

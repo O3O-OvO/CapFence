@@ -369,7 +369,7 @@ function analyzeSource(source: SourceFile, root: string, capabilities: Capabilit
       const processApi = /(?:child_process\.)?(?:exec|execFile|spawn|spawnSync)\s*\(/i.test(line)
         || /(?:subprocess\.(?:run|popen|call|check_call|check_output)|os\.system)\s*\(/i.test(line);
       if (processApi) {
-      const dynamic = isDynamic(line) || /process\.env|os\.environ|\b(?:input|args|command|prompt)\b/i.test(line);
+        const dynamic = isDynamic(line) || /process\.env|os\.environ|\b(?:input|args|command|prompt)\b/i.test(line);
         const process = addCapability(capabilities, current, "process.execute", dynamic ? "shell:dynamic" : "process", line, loc);
         if (dynamic) {
           const dyn = addCapability(capabilities, current, "dynamic.execute", "process-input", line, loc);

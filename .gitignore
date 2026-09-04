@@ -7,3 +7,6 @@ cli-*.out
 .pack-check/
 audit-output.json
 audit.sarif
+bad.err
+selfdiff.out
+selfscan-*.out
