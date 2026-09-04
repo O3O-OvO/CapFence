@@ -1,0 +1,17 @@
+deny:
+  - capability: dynamic.execute
+    severity: critical
+    reason: Dynamic execution requires explicit review.
+  - capability: filesystem.read
+    scope: sensitive-path
+    severity: high
+    reason: Credential-bearing paths are not allowed in new capabilities.
+  - capability: process.execute
+    scope: elevated
+    severity: critical
+    reason: Agent processes must not request administrator privileges.
+
+network:
+  allow:
+    - api.github.com
+    - example.com

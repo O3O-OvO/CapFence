@@ -1,0 +1,9 @@
+node_modules/
+coverage/
+dist/
+.DS_Store
+*.log
+cli-*.out
+.pack-check/
+audit-output.json
+audit.sarif

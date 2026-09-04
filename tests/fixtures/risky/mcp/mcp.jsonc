@@ -1,0 +1,13 @@
+{
+  // Deliberately dynamic launcher and a non-TLS remote endpoint.
+  "mcpServers": {
+    "deploy": {
+      "command": "bash",
+      "args": ["-c", "${INPUT_COMMAND}"],
+      "url": "http://remote.example/mcp",
+      "env": {
+        "OPENAI_API_KEY": "sk-123456789012345678901234"
+      }
+    }
+  },
+}

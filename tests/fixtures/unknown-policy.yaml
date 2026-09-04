@@ -1,0 +1,6 @@
+denny:
+  - capability: dynamic.execute
+
+network:
+  alow:
+    - api.example.com

@@ -1,0 +1,69 @@
+name: CapFence
+description: Detect capability changes and deterministic security risks in AI agent skills and MCP configurations.
+author: O3O-OvO
+inputs:
+  path:
+    description: Directory or file to scan.
+    required: false
+    default: .
+  format:
+    description: "Output format: text, json, sarif, or github."
+    required: false
+    default: github
+  baseline:
+    description: Optional baseline JSON file.
+    required: false
+    default: ""
+  policy:
+    description: Optional YAML policy file.
+    required: false
+    default: ""
+  fail-on:
+    description: "Finding threshold: critical, high, medium, or low."
+    required: false
+    default: critical
+  fail-existing:
+    description: Fail again for findings already present in the baseline.
+    required: false
+    default: "false"
+  allow-changes:
+    description: Report capability changes without failing for added or widened capabilities.
+    required: false
+    default: "false"
+  output:
+    description: Optional output file relative to the caller workspace.
+    required: false
+    default: ""
+runs:
+  using: composite
+  steps:
+    - name: Install CapFence dependencies
+      shell: bash
+      working-directory: ${{ github.action_path }}
+      run: |
+        corepack enable
+        pnpm install --frozen-lockfile --ignore-scripts
+    - name: Build CapFence
+      shell: bash
+      working-directory: ${{ github.action_path }}
+      run: pnpm run build
+    - name: Scan with CapFence
+      shell: bash
+      env:
+        CAPFENCE_TARGET: ${{ inputs.path }}
+        CAPFENCE_FORMAT: ${{ inputs.format }}
+        CAPFENCE_BASELINE: ${{ inputs.baseline }}
+        CAPFENCE_POLICY: ${{ inputs.policy }}
+        CAPFENCE_FAIL_ON: ${{ inputs.fail-on }}
+        CAPFENCE_FAIL_EXISTING: ${{ inputs.fail-existing }}
+        CAPFENCE_ALLOW_CHANGES: ${{ inputs.allow-changes }}
+        CAPFENCE_OUTPUT: ${{ inputs.output }}
+      run: |
+        set -euo pipefail
+        args=(scan "$CAPFENCE_TARGET" --format "$CAPFENCE_FORMAT" --fail-on "$CAPFENCE_FAIL_ON")
+        if [[ -n "$CAPFENCE_BASELINE" ]]; then args+=(--baseline "$CAPFENCE_BASELINE"); fi
+        if [[ -n "$CAPFENCE_POLICY" ]]; then args+=(--policy "$CAPFENCE_POLICY"); fi
+        if [[ "$CAPFENCE_FAIL_EXISTING" == "true" ]]; then args+=(--fail-existing); fi
+        if [[ "$CAPFENCE_ALLOW_CHANGES" == "true" ]]; then args+=(--allow-changes); fi
+        if [[ -n "$CAPFENCE_OUTPUT" ]]; then args+=(--output "$CAPFENCE_OUTPUT"); fi
+        node "$GITHUB_ACTION_PATH/dist/cli.js" "${args[@]}"

@@ -1,0 +1,52 @@
+{
+  "name": "capfence",
+  "version": "0.1.0",
+  "description": "Capability-diff security for AI agent skills and MCP servers.",
+  "type": "module",
+  "bin": {
+    "capfence": "dist/cli.js"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "packageManager": "pnpm@11.19.0",
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "check": "tsc --noEmit -p tsconfig.json",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "prepare": "npm run build",
+    "prepack": "npm run build"
+  },
+  "keywords": [
+    "ai-agent",
+    "mcp",
+    "security",
+    "capability",
+    "policy",
+    "supply-chain"
+  ],
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/O3O-OvO/CapFence.git"
+  },
+  "bugs": {
+    "url": "https://github.com/O3O-OvO/CapFence/issues"
+  },
+  "homepage": "https://github.com/O3O-OvO/CapFence#readme",
+  "dependencies": {
+    "jsonc-parser": "^3.3.1",
+    "yaml": "^2.7.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.2",
+    "typescript": "^5.7.3",
+    "vitest": "^3.0.5"
+  }
+}

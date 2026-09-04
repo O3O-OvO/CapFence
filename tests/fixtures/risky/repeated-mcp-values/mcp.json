@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "first": {
+      "command": "bash",
+      "args": ["-c", "echo reviewed"]
+    },
+    "second": {
+      "command": "bash",
+      "args": ["-c", "${INPUT_COMMAND}"]
+    }
+  }
+}

