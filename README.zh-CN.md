@@ -86,6 +86,13 @@ node dist/cli.js diff path/to/project --baseline capfence.baseline.json
 node dist/cli.js graph path/to/project --output capfence.graph.json
 # 添加 --baseline 后，能力节点会标注 added、removed 或 widened。
 node dist/cli.js graph path/to/project --baseline capfence.baseline.json --output capfence.graph.json
+
+导出适合 Pull Request 的权限摘要（默认 Markdown）：
+
+```bash
+node dist/cli.js summary path/to/project --baseline capfence.baseline.json --policy capfence-policy.yml --output capfence-summary.md
+node dist/cli.js summary path/to/project --baseline capfence.baseline.json --format json
+```
 ```
 
 ## 策略

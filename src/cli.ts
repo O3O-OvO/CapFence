@@ -7,6 +7,7 @@ import { scanTarget } from "./analyzer.js";
 import { loadPolicy, evaluatePolicy } from "./policy.js";
 import { formatGithub, formatJson, formatSarif, formatText } from "./reporters.js";
 import { buildCapabilityGraph } from "./graph.js";
+import { buildPermissionSummary, formatPermissionSummaryJson, formatPermissionSummaryMarkdown } from "./summary.js";
 import type { Baseline, ReportFormat, Severity } from "./types.js";
 
 const VERSION = "0.1.0";
@@ -26,6 +27,7 @@ Usage:
   capfence baseline <path> [options]   Write a capability baseline
   capfence diff <path> [options]       Compare capabilities with a baseline
   capfence graph <path> [options]      Export a capability relationship graph
+  capfence summary <path> [options]    Export a pull request permission summary
 
 Options:
   --format text|json|sarif|github       Output format (default: text)
@@ -100,7 +102,7 @@ function main(): void {
     writeOutput(VERSION);
     return;
   }
-  if (!["scan", "baseline", "diff", "graph"].includes(command)) throw new Error(`Unknown command: ${command}\n\n${usage()}`);
+  if (!["scan", "baseline", "diff", "graph", "summary"].includes(command)) throw new Error(`Unknown command: ${command}\n\n${usage()}`);
   const target = validateArguments();
   if (command === "diff" && !option("--baseline")) throw new Error("diff requires --baseline <file>");
   const result = scanTarget(target);
@@ -113,8 +115,11 @@ function main(): void {
   }
   const baselinePath = option("--baseline");
   const policyPath = option("--policy");
-  const formatValue = option("--format") ?? "text";
-  if (!REPORT_FORMATS.has(formatValue as ReportFormat)) throw new Error(`Unsupported format: ${formatValue}`);
+  const formatValue = option("--format") ?? (command === "summary" ? "markdown" : "text");
+  if (command === "summary") {
+    if (!["markdown", "json"].includes(formatValue)) throw new Error(`Unsupported summary format: ${formatValue}`);
+  }
+  if (command !== "summary" && !REPORT_FORMATS.has(formatValue as ReportFormat)) throw new Error(`Unsupported format: ${formatValue}`);
   const format = formatValue as ReportFormat;
 
   if (command === "baseline") {
@@ -128,7 +133,9 @@ function main(): void {
   const diff = command === "diff" || baseline ? (baseline ? diffBaseline(baseline, result) : undefined) : undefined;
   const policyChanges = diff?.changes ?? (policyPath ? result.capabilities.map((capability) => ({ type: "added" as const, current: { kind: capability.kind, scope: capability.scope, source: capability.source } })) : []);
   const policy = policyPath ? evaluatePolicy(policyChanges, loadPolicy(policyPath)) : undefined;
-  const output = format === "json"
+  const output = command === "summary"
+    ? (formatValue === "json" ? formatPermissionSummaryJson(buildPermissionSummary(result, diff?.changes ?? [], policy)) : formatPermissionSummaryMarkdown(buildPermissionSummary(result, diff?.changes ?? [], policy)))
+    : format === "json"
     ? formatJson(result, diff?.changes, policy)
     : format === "sarif"
       ? formatSarif(result, VERSION, diff?.changes, policy)

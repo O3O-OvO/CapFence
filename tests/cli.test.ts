@@ -119,4 +119,23 @@ describe("CLI black-box contract", () => {
     const report = JSON.parse(graph.stdout) as { nodes: Array<{ type: string; changeType?: string }> };
     expect(report.nodes.some((node) => node.type === "capability" && (node.changeType === "added" || node.changeType === "widened"))).toBe(true);
   });
+
+  it("exports markdown and JSON permission summaries", () => {
+    const baselinePath = path.join(tempRoot, "summary-baseline.json");
+    const policyPath = path.join(tempRoot, "summary-policy.yml");
+    const summaryPath = path.join(tempRoot, "summary.md");
+    expect(runCli("baseline", path.join(fixtures, "safe", "mcp-authenticated-remote"), "--output", baselinePath).status).toBe(0);
+    fs.writeFileSync(policyPath, "deny:\n  - capability: network.connect\n    severity: high\n", "utf8");
+    const markdown = runCli("summary", path.join(fixtures, "risky", "mcp"), "--baseline", baselinePath, "--policy", policyPath, "--output", summaryPath);
+    expect(markdown.status).toBe(1);
+    expect(fs.readFileSync(summaryPath, "utf8")).toContain("## CapFence permission summary");
+    expect(fs.readFileSync(summaryPath, "utf8")).toContain("Policy");
+
+    const json = runCli("summary", path.join(fixtures, "risky", "mcp"), "--baseline", baselinePath, "--format", "json");
+    expect(json.status).toBe(1);
+    const report = JSON.parse(json.stdout) as { schemaVersion: number; baseline: boolean; entries: Array<{ type: string }> };
+    expect(report.schemaVersion).toBe(1);
+    expect(report.baseline).toBe(true);
+    expect(report.entries.some((entry) => entry.type === "added" || entry.type === "widened")).toBe(true);
+  });
 });

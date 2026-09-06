@@ -104,6 +104,27 @@ export interface PolicyResult {
   violations: PolicyViolation[];
 }
 
+export interface PermissionSummaryEntry {
+  type: "added" | "widened" | "removed" | "policy";
+  capability: CapabilityKind;
+  scope: string;
+  source?: Capability["source"];
+  subject?: string;
+  evidence?: string;
+  severity?: Severity;
+  reason?: string;
+}
+
+export interface PermissionSummary {
+  schemaVersion: 1;
+  target: string;
+  baseline: boolean;
+  changes: { added: number; widened: number; removed: number };
+  findings: Record<Severity, number>;
+  policyViolations: number;
+  entries: PermissionSummaryEntry[];
+}
+
 export type GraphNodeType = "target" | "source" | "subject" | "resource" | "capability" | "finding";
 
 export interface CapabilityGraphNode {
