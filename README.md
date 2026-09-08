@@ -43,7 +43,7 @@ pnpm run build
 pnpm run demo
 ```
 
-The example is at [`examples/mcp-demo`](examples/mcp-demo). It uses synthetic placeholders only; never put a real token in a fixture or issue. For a structured evaluation of public repositories, use [`docs/evaluation-template.md`](docs/evaluation-template.md). For a first-user pilot and pinned Action template, see [`docs/first-users.md`](docs/first-users.md).
+The example is at [`examples/mcp-demo`](examples/mcp-demo). It uses synthetic placeholders only; never put a real token in a fixture or issue. For a structured evaluation of public repositories, use [`docs/evaluation-template.md`](docs/evaluation-template.md) and the local-only evaluator (`pnpm run evaluate -- path/to/checkout --output .capfence/evaluation`). For a first-user pilot and pinned Action template, see [`docs/first-users.md`](docs/first-users.md). A Remotion showcase video can be previewed with `pnpm run video:preview` and rendered with `pnpm run video:render`; use [`docs/release-checklist.md`](docs/release-checklist.md) before publishing.
 
 ## Install and run
 

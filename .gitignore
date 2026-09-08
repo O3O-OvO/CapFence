@@ -5,6 +5,8 @@ dist/
 *.log
 cli-*.out
 .pack-check/
+video/out/
+.capfence/
 audit-output.json
 audit.sarif
 bad.err

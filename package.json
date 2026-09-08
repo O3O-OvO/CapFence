@@ -24,6 +24,11 @@
     "test:package": "node scripts/package-smoke.mjs",
     "benchmark": "node scripts/benchmark.mjs",
     "demo": "node examples/mcp-demo/run-demo.mjs",
+    "evaluate": "node scripts/evaluate.mjs",
+    "video:install": "pnpm add -D remotion @remotion/cli @remotion/player",
+    "video:preview": "remotion studio video/src/index.tsx",
+    "video:render": "remotion render video/src/index.tsx CapFenceEvaluation video/out/capfence-evaluation.mp4",
+    "video:check": "remotion compositions video/src/index.tsx",
     "prepare": "npm run build",
     "prepack": "npm run build"
   },
@@ -50,7 +55,10 @@
     "yaml": "^2.7.0"
   },
   "devDependencies": {
+    "@remotion/cli": "4.0.522",
+    "@remotion/player": "4.0.522",
     "@types/node": "^22.10.2",
+    "remotion": "4.0.522",
     "vitest": "^3.0.5"
   }
 }
