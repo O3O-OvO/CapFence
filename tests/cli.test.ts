@@ -84,6 +84,39 @@ describe("CLI black-box contract", () => {
     expect(result.stderr).toContain("Invalid baseline");
   });
 
+  it("reports incomplete scans in CI formats and supports strict failure", () => {
+    const target = path.join(tempRoot, "incomplete");
+    fs.mkdirSync(target);
+    fs.writeFileSync(path.join(target, "mcp.json"), '{"mcpServers":');
+    for (const format of ["json", "github", "sarif"]) {
+      const result = runCli("scan", target, "--format", format, "--fail-on-incomplete");
+      expect(result.status).toBe(1);
+      expect(result.stdout).toContain("mcp.json");
+    }
+    expect(runCli("scan", target, "--format", "json").status).toBe(0);
+  });
+
+  it("rejects malformed baseline entries and future schemas", () => {
+    const file = path.join(tempRoot, "bad-schema.json");
+    for (const value of [
+      { schemaVersion: 99, generatedAt: "now", capabilities: [] },
+      { schemaVersion: 1, generatedAt: "now", capabilities: [{ kind: "bogus", scope: "x", source: "runtime" }] },
+      { schemaVersion: 1, generatedAt: "now", capabilities: [], findings: [42] },
+    ]) {
+      fs.writeFileSync(file, JSON.stringify(value));
+      expect(runCli("diff", path.join(fixtures, "safe"), "--baseline", file).status).toBe(2);
+    }
+  });
+
+  it("reports a supplied unchanged baseline in summaries", () => {
+    const baseline = path.join(tempRoot, "unchanged.json");
+    const target = path.join(fixtures, "safe", "static-shell");
+    expect(runCli("baseline", target, "--output", baseline).status).toBe(0);
+    const result = runCli("summary", target, "--baseline", baseline, "--format", "json");
+    expect(result.status).toBe(0);
+    expect(JSON.parse(result.stdout)).toMatchObject({ baseline: true, changes: { added: 0, widened: 0, removed: 0 } });
+  });
+
   it("exports a deterministic capability graph", () => {
     const graph = runCli("graph", path.join(fixtures, "risky", "composite"));
     expect(graph.status).toBe(0);
@@ -102,7 +135,7 @@ describe("CLI black-box contract", () => {
     const report = JSON.parse(graph.stdout) as { nodes: Array<{ type: string; id: string; resourceType?: string; evidence?: string; confidence?: string; subjects?: string[] }>; edges: Array<{ type: string }> };
     expect(report.nodes.some((node) => node.type === "subject" && node.id.includes("mcp:mcpServers:github"))).toBe(true);
     expect(report.nodes.some((node) => node.type === "resource" && node.resourceType === "network" && node.id.includes("api.github.com"))).toBe(true);
-    expect(report.nodes.some((node) => node.type === "resource" && node.resourceType === "credential" && node.id.includes("injected-env:github_token"))).toBe(true);
+    expect(report.nodes.some((node) => node.type === "resource" && node.resourceType === "credential" && node.id.includes("injected-env:GITHUB_TOKEN"))).toBe(true);
     expect(report.edges.some((edge) => edge.type === "uses")).toBe(true);
     const capability = report.nodes.find((node) => node.type === "capability" && node.id.includes("network.connect"));
     expect(capability?.evidence).toContain("api.github.com");

@@ -59,10 +59,10 @@ export function loadPolicy(filePath: string): Policy {
   return policy;
 }
 
-function matchesScope(ruleScope: string | undefined, capabilityScope: string): boolean {
-  if (!ruleScope || normalizeScope(ruleScope) === "*") return true;
-  const rule = normalizeScope(ruleScope);
-  const actual = normalizeScope(capabilityScope);
+function matchesScope(ruleScope: string | undefined, capabilityScope: string, kind: BaselineCapability["kind"]): boolean {
+  if (!ruleScope || normalizeScope(ruleScope, kind) === "*") return true;
+  const rule = normalizeScope(ruleScope, kind);
+  const actual = normalizeScope(capabilityScope, kind);
   if (rule === actual) return true;
   if (rule.endsWith("/**")) return actual.startsWith(rule.slice(0, -2));
   if (rule.endsWith(":any") || rule === "any") return true;
@@ -70,10 +70,10 @@ function matchesScope(ruleScope: string | undefined, capabilityScope: string): b
 }
 
 function violatesNetworkAllowlist(capability: BaselineCapability, policy: Policy): boolean {
-  if (capability.kind !== "network.connect" || !policy.network?.allow?.length) return false;
-  if (capability.scope === "dynamic" || capability.scope.includes("dynamic")) return true;
+  if (capability.kind !== "network.connect" || policy.network?.allow === undefined) return false;
+  if (normalizeScope(capability.scope, "network.connect") === "dynamic") return true;
   const host = capability.scope.split("|").at(-1) ?? capability.scope;
-  return !policy.network.allow.some((allowed) => matchesScope(allowed, host));
+  return !policy.network.allow.some((allowed) => matchesScope(allowed, host, "network.connect"));
 }
 
 export function evaluatePolicy(changes: CapabilityChange[], policy: Policy): PolicyResult {
@@ -82,14 +82,14 @@ export function evaluatePolicy(changes: CapabilityChange[], policy: Policy): Pol
   for (const change of changes) {
     if (change.type === "removed" || !change.current) continue;
     const capability = change.current;
-    const matchingRule = denyRules.find((rule) => rule.capability === capability.kind && matchesScope(rule.scope, capability.scope));
+    const matchingRule = denyRules.find((rule) => rule.capability === capability.kind && matchesScope(rule.scope, capability.scope, capability.kind));
     const networkDenied = violatesNetworkAllowlist(capability, policy);
     if (!matchingRule && !networkDenied) continue;
     const severity = matchingRule?.severity && SEVERITIES.has(matchingRule.severity) ? matchingRule.severity : "high";
     violations.push({
       severity,
       capability,
-      reason: matchingRule?.reason ?? "Network host is outside the policy allowlist.",
+      reason: matchingRule?.reason ?? (matchingRule ? "Capability is denied by policy." : "Network host is outside the policy allowlist."),
     });
   }
   return { violations };

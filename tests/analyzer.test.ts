@@ -1,11 +1,14 @@
 import fs from "node:fs";
 import path from "node:path";
+import os from "node:os";
 import { fileURLToPath } from "node:url";
 
 import { describe, expect, it } from "vitest";
 
 import { discoverFiles } from "../src/discovery.js";
-import { scanTarget } from "../src/analyzer.js";
+import { capabilityFingerprint, scanTarget } from "../src/analyzer.js";
+import { parseYaml, walkValues } from "../src/parsers.js";
+import { normalizeScope } from "../src/utils/text.js";
 
 const fixtures = fileURLToPath(new URL("./fixtures", import.meta.url));
 const fixture = (...parts: string[]) => path.join(fixtures, ...parts);
@@ -23,7 +26,73 @@ describe("file discovery", () => {
   });
 });
 
+function scanContent(name: string, content: string) {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "capfence-analysis-"));
+  try {
+    fs.writeFileSync(path.join(directory, name), content);
+    return scanTarget(directory);
+  } finally {
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
+}
+
 describe("capability analysis", () => {
+  it.each(["-EncodedCommand", "-enc", "-ENC", "-EncodedCommand="])("detects PowerShell encoded flag %s", (flag) => {
+    const result = scanContent("run.ps1", `powershell ${flag} SQBFAFgA`);
+    expect(result.findings.some((finding) => finding.id === "CF-DYN-001")).toBe(true);
+  });
+
+  it.each(["-encoding", "-enc-more", "prefix-enc", "-EncodedCommandExtra"])("rejects partial encoded flag %s", (flag) => {
+    const result = scanContent("run.ps1", `pwsh ${flag} SQBFAFgA`);
+    expect(result.findings.some((finding) => finding.id === "CF-DYN-001")).toBe(false);
+  });
+
+  it("preserves executable, path, and environment case in scopes and fingerprints", () => {
+    const result = scanContent("mcp.json", JSON.stringify({ mcpServers: {
+      upper: { command: "Tool", cwd: "/Data/Project", env: { API_TOKEN: "injected" } },
+      lower: { command: "tool", cwd: "/data/project", env: { api_token: "injected" } },
+    } }));
+    expect(result.capabilities.map(capabilityFingerprint)).toEqual(expect.arrayContaining([
+      "process.execute|binary:Tool", "process.execute|binary:tool",
+      "filesystem.read|/Data/Project", "filesystem.read|/data/project",
+      "credential.read|injected-env:API_TOKEN", "credential.read|injected-env:api_token",
+    ]));
+    expect(normalizeScope("HTTPS|EXAMPLE.COM", "network.connect")).toBe("https|example.com");
+    expect(normalizeScope("SHELL:DYNAMIC", "process.execute")).toBe("shell:dynamic");
+    expect(normalizeScope("ENCODED", "dynamic.execute")).toBe("encoded");
+    expect(normalizeScope("prepublishOnly", "package.lifecycle")).toBe("prepublishOnly");
+  });
+
+  it("reports YAML conversion failures as limited without throwing", () => {
+    const result = scanContent("mcp.yaml", "mcpServers: *missing\n");
+    expect(result.analysisLimited).toHaveLength(1);
+    expect(result.analysisLimited[0]?.message).toContain("YAML conversion failed");
+    expect(result.capabilities).toEqual([]);
+  });
+
+  it("reports YAML alias expansion limits as analysis limitations", () => {
+    const yaml = "a: &a [x, x, x, x, x, x, x, x, x, x]\nb: &b [*a, *a, *a, *a, *a, *a, *a, *a, *a, *a]\nc: [*b, *b, *b, *b, *b, *b, *b, *b, *b, *b]\n";
+    expect(scanContent("mcp.yaml", yaml).analysisLimited[0]?.message).toContain("YAML conversion failed");
+  });
+
+  it("bounds cyclic YAML traversal while analyzing reachable servers", () => {
+    const result = scanContent("mcp.yaml", "loop: &loop\n  self: *loop\nmcpServers:\n  local:\n    command: Tool\n");
+    expect(result.analysisLimited[0]?.message).toContain("Cyclic structured value");
+    expect(result.capabilities.some((item) => item.scope === "binary:Tool")).toBe(true);
+  });
+
+  it("visits shared aliases under each path without reporting cycles", () => {
+    const parsed = parseYaml("shared: &shared { command: Tool }\nmcpServers: { local: *shared }\n");
+    const paths: string[] = [];
+    expect(walkValues(parsed.value, (_value, keyPath) => paths.push(keyPath.join(".")))).toEqual([]);
+    expect(paths).toContain("mcpServers.local.command");
+  });
+
+  it("preserves repeated resource occurrences at distinct source locations", () => {
+    const result = scanContent("run.sh", "bash script.sh\nbash script.sh\n");
+    expect(result.capabilities.filter((item) => item.scope === "shell:static").map((item) => item.location.startLine)).toEqual([1, 2]);
+  });
+
   it("does not scan prose or unlabelled markdown blocks as commands", () => {
     const result = scanTarget(fixture("safe", "skill-prose-only"));
     expect(result.scannedFiles).toBe(1);

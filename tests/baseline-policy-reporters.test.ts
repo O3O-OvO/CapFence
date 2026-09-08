@@ -6,6 +6,7 @@ import { evaluatePolicy, loadPolicy } from "../src/policy.js";
 import { formatGithub, formatJson, formatSarif, formatText } from "../src/reporters.js";
 import type { Baseline, ScanResult } from "../src/types.js";
 import { scanTarget } from "../src/analyzer.js";
+import { buildPermissionSummary, formatPermissionSummaryJson, formatPermissionSummaryMarkdown } from "../src/summary.js";
 
 const baseResult = (scope: string): ScanResult => ({
   schemaVersion: 1,
@@ -56,6 +57,13 @@ describe("baseline and capability diff", () => {
 });
 
 describe("policy evaluation", () => {
+  it("treats an explicit empty network allowlist as deny all", () => {
+    const changes = diffBaseline({ schemaVersion: 1, generatedAt: "2026-01-01", capabilities: [] }, baseResult("https|api.example.com")).changes;
+    expect(evaluatePolicy(changes, { network: { allow: [] } }).violations).toHaveLength(1);
+    expect(evaluatePolicy(changes, { network: {} }).violations).toHaveLength(0);
+    expect(evaluatePolicy([], { network: { allow: [] } }).violations).toHaveLength(0);
+  });
+
   it("applies deny rules and network allowlists only to added or widened capabilities", () => {
     const baseline: Baseline = toBaseline(baseResult("https|api.example.com"));
     const diff = diffBaseline(baseline, baseResult("dynamic"));
@@ -66,6 +74,22 @@ describe("policy evaluation", () => {
     expect(policy.violations).toHaveLength(1);
     expect(policy.violations[0]?.severity).toBe("critical");
     expect(policy.violations[0]?.reason).toContain("Dynamic hosts");
+  });
+
+  it("does not mistake an allowlisted literal dynamic-named host for a template", () => {
+    const changes = diffBaseline({ schemaVersion: 1, generatedAt: "now", capabilities: [] }, baseResult("https|dynamic.example.com")).changes;
+    expect(evaluatePolicy(changes, { network: { allow: ["DYNAMIC.example.com"] } }).violations).toHaveLength(0);
+  });
+
+  it("preserves executable case in deny rules and baseline identity", () => {
+    const before = baseResult("binary:/opt/tools/Safe");
+    before.capabilities[0]!.kind = "process.execute";
+    const after = baseResult("binary:/opt/tools/safe");
+    after.capabilities[0]!.kind = "process.execute";
+    const changes = diffBaseline(toBaseline(before), after).changes;
+    expect(changes.map(item => item.type).sort()).toEqual(["added", "removed"]);
+    expect(evaluatePolicy(changes, { deny: [{ capability: "process.execute", scope: "binary:/opt/tools/Safe" }] }).violations).toHaveLength(0);
+    expect(evaluatePolicy(changes, { deny: [{ capability: "process.execute", scope: "binary:/opt/tools/safe" }] }).violations[0]?.reason).toBe("Capability is denied by policy.");
   });
 
   it("rejects malformed policy values before evaluation", () => {
@@ -79,7 +103,88 @@ describe("policy evaluation", () => {
   });
 });
 
+describe("permission summary", () => {
+  it("records baseline presence explicitly even when unchanged", () => {
+    const result = baseResult("dynamic");
+    const changes = diffBaseline(toBaseline(result), result).changes;
+    const unchanged = buildPermissionSummary(result, changes, undefined, true);
+    expect(unchanged.baseline).toBe(true);
+    expect(formatPermissionSummaryMarkdown(unchanged)).toContain("No new permission changes detected");
+    const withoutBaseline = buildPermissionSummary(result);
+    expect(withoutBaseline.baseline).toBe(false);
+    expect(formatPermissionSummaryMarkdown(withoutBaseline)).toContain("permission changes not assessed");
+    expect(formatPermissionSummaryMarkdown(withoutBaseline)).not.toContain("No capability changes or policy violations.");
+    expect(buildPermissionSummary(result, [{ type: "added", current: toBaseline(result).capabilities[0]! }]).baseline).toBe(false);
+  });
+
+  it("retains every matching source location for changes and policy entries", () => {
+    const result = baseResult("DYNAMIC");
+    result.capabilities.push({ ...result.capabilities[0]!, scope: "dynamic", source: "runtime", location: { file: "second.ts", startLine: 8, startColumn: 2, endLine: 8, endColumn: 10 } });
+    const changes = diffBaseline(toBaseline(baseResult("https|api.example.com")), result).changes;
+    const policy = evaluatePolicy(changes, { deny: ["network.connect"] });
+    const summary = buildPermissionSummary(result, changes, policy, true);
+    expect(summary.entries).toHaveLength(2);
+    for (const entry of summary.entries) expect(entry.locations).toEqual(result.capabilities.map((capability) => capability.location));
+    const markdown = formatPermissionSummaryMarkdown(summary);
+    expect(markdown).toContain("mcp.json:4:12<br>second.ts:8:2");
+    for (const item of JSON.parse(formatSarif(result, "0.1.0", changes, policy)).runs[0].results) expect(item.locations).toHaveLength(2);
+    expect(formatGithub(result, changes, policy)).toContain("file=second.ts,line=8,col=2,title=CF-CAP-002");
+    const removed = buildPermissionSummary(baseResult("different"), [{ type: "removed", previous: toBaseline(result).capabilities }], undefined, true);
+    expect(removed.entries[0]!.locations).toEqual([]);
+  });
+
+  it("escapes every untrusted Markdown table cell and target", () => {
+    const result = baseResult("https|host`\n<script>");
+    result.target = "target`\n<script>";
+    result.capabilities[0]!.location.file = "file|`\n<script>";
+    const capability = { kind: "network.connect" as const, scope: result.capabilities[0]!.scope, source: "configuration" as const };
+    const summary = buildPermissionSummary(result, [{ type: "added", current: capability }], { violations: [{ severity: "high", capability, reason: "reason|`\r\n<script> [link](url)" }] }, true);
+    summary.entries[0]!.source = "source|`\n<script>" as "configuration";
+    const markdown = formatPermissionSummaryMarkdown(summary);
+    expect(markdown).not.toContain("<script>");
+    expect(markdown).not.toContain("`");
+    expect(markdown).toContain("https&#124;host&#96;<br>&lt;script&gt;");
+    expect(markdown).toContain("source&#124;&#96;<br>&lt;script&gt;");
+    expect(markdown).toContain("reason&#124;&#96;<br>&lt;script&gt; &#91;link&#93;&#40;url&#41;");
+    for (const line of markdown.split("\n").filter((line) => line.startsWith("|"))) expect(line.split("|")).toHaveLength(9);
+  });
+});
+
 describe("report formats", () => {
+  it("preserves incomplete-analysis diagnostics in every report", () => {
+    const result = baseResult("dynamic");
+    result.analysisLimited = [{ file: "broken.json", message: "Cannot parse configuration" }];
+    const summary = buildPermissionSummary(result, [], undefined, true);
+    for (const output of [formatText(result), formatJson(result), formatSarif(result), formatGithub(result), formatPermissionSummaryJson(summary), formatPermissionSummaryMarkdown(summary)]) {
+      expect(output).toContain("broken.json");
+      expect(output).toContain("Cannot parse configuration");
+    }
+    const run = JSON.parse(formatSarif(result)).runs[0];
+    expect(run.invocations[0].executionSuccessful).toBe(false);
+    expect(run.invocations[0].toolExecutionNotifications[0]).toMatchObject({ level: "warning", locations: [{ physicalLocation: { artifactLocation: { uri: "broken.json" } } }] });
+    expect(formatGithub(result)).toContain("::warning file=broken.json,title=CF-ANALYSIS-LIMITED::Analysis incomplete");
+    expect(formatPermissionSummaryMarkdown(summary)).toContain("Warning: analysis incomplete");
+    expect(formatPermissionSummaryMarkdown(summary)).not.toContain("No new permission changes detected");
+    expect(summary.scannedFiles).toBe(1);
+    expect(summary.analysisLimited).toEqual(result.analysisLimited);
+    expect(JSON.parse(formatSarif(baseResult("dynamic"))).runs[0].invocations[0]).toEqual({ executionSuccessful: true, toolExecutionNotifications: [] });
+  });
+
+  it("emits located added, widened and policy GitHub annotations with escaped reasons", () => {
+    for (const previousScope of ["https|old.example.com", "https|api.example.com"]) {
+      const result = baseResult(previousScope.includes("old") ? "https|new.example.com" : "dynamic");
+      result.capabilities[0]!.location.file = "odd,\nfile.json";
+      const changes = diffBaseline(toBaseline(baseResult(previousScope)), result).changes;
+      const policy = { violations: [{ severity: "high" as const, capability: changes.find((change) => change.current)!.current!, reason: "Review, now\n::error::injected" }] };
+      const output = formatGithub(result, changes, policy);
+      const rule = result.capabilities[0]!.scope === "dynamic" ? "CF-CAP-002" : "CF-CAP-001";
+      expect(output).toContain(`::error file=odd%2C%0Afile.json,line=4,col=12,title=${rule}::`);
+      expect(output).toContain("title=CF-POLICY-001::Policy violation");
+      expect(output).toContain("Review%2C now%0A%3A%3Aerror%3A%3Ainjected");
+      expect(output).not.toContain("\n::error::injected");
+    }
+  });
+
   it("redacts credential material from text, JSON, SARIF, and GitHub output", () => {
     const result = scanTarget(fileURLToPath(new URL("./fixtures/risky/composite", import.meta.url)));
     const token = "ghp_123456789012345678901234567890123456";

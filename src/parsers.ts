@@ -28,7 +28,12 @@ export function parseJsonLike(content: string): ParsedStructured {
 export function parseYaml(content: string): ParsedStructured {
   const document = parseDocument(content, { prettyErrors: false, strict: false });
   const issues = document.errors.map((error: YAMLParseError) => ({ message: error.message, line: error.pos[0] }));
-  return { value: document.toJS(), document, issues };
+  try {
+    return { value: document.toJS(), document, issues };
+  } catch (error) {
+    issues.push({ message: `YAML conversion failed: ${error instanceof Error ? error.message : String(error)}`, line: 0 });
+    return { value: undefined, document, issues };
+  }
 }
 
 export function objectEntries(value: unknown): Array<[string, unknown]> {
@@ -36,15 +41,38 @@ export function objectEntries(value: unknown): Array<[string, unknown]> {
   return Object.entries(value as Record<string, unknown>);
 }
 
-export function walkValues(value: unknown, visit: (value: unknown, keyPath: string[]) => void, keyPath: string[] = []): void {
-  visit(value, keyPath);
-  if (Array.isArray(value)) {
-    value.forEach((item, index) => walkValues(item, visit, [...keyPath, String(index)]));
-  } else if (value && typeof value === "object") {
-    for (const [key, child] of Object.entries(value as Record<string, unknown>)) {
-      walkValues(child, visit, [...keyPath, key]);
+export function walkValues(value: unknown, visit: (value: unknown, keyPath: string[]) => void, keyPath: string[] = []): ParseIssue[] {
+  const issues: ParseIssue[] = [];
+  const ancestors = new WeakSet<object>();
+  const stack: Array<{ value: unknown; keyPath: string[]; leaving?: boolean }> = [{ value, keyPath }];
+  let visited = 0;
+  while (stack.length > 0) {
+    const current = stack.pop()!;
+    const object = current.value !== null && typeof current.value === "object" ? current.value : undefined;
+    if (current.leaving) {
+      if (object) ancestors.delete(object);
+      continue;
+    }
+    if (++visited > 100_000 || current.keyPath.length > 256) {
+      issues.push({ message: "Structured traversal limit exceeded" });
+      break;
+    }
+    if (object && ancestors.has(object)) {
+      if (!issues.some((issue) => issue.message === "Cyclic structured value encountered")) issues.push({ message: "Cyclic structured value encountered" });
+      continue;
+    }
+    visit(current.value, current.keyPath);
+    if (!object) continue;
+    // Track only ancestors so shared, non-cyclic aliases retain each semantic path.
+    ancestors.add(object);
+    stack.push({ ...current, leaving: true });
+    const entries = Object.entries(object);
+    for (let index = entries.length - 1; index >= 0; index -= 1) {
+      const [key, child] = entries[index]!;
+      stack.push({ value: child, keyPath: [...current.keyPath, key] });
     }
   }
+  return issues;
 }
 
 export function getPath(value: unknown, path: string[]): unknown {

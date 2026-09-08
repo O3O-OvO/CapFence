@@ -1,3 +1,5 @@
+import type { CapabilityKind } from "../types.js";
+
 export function isDynamic(value: string): boolean {
   return /\$\{|\$[A-Za-z_][A-Za-z0-9_]*|%[A-Za-z_][A-Za-z0-9_]*%|\{\{[^}]+\}\}|\$\{\{[^}]+\}\}/.test(value);
 }
@@ -12,8 +14,16 @@ export function redactSecrets(value: string): string {
     .replace(/AIza[0-9A-Za-z_-]{30,}/g, "AIza[REDACTED]");
 }
 
-export function normalizeScope(value: string): string {
-  return value.trim().replaceAll("\\", "/").replace(/\/+/g, "/").toLowerCase();
+export function normalizeScope(value: string, kind?: CapabilityKind): string {
+  const normalized = value.trim().replaceAll("\\", "/").replace(/\/+/g, "/");
+  if (kind === "network.connect" || kind === "dynamic.execute") return normalized.toLowerCase();
+  if (kind === "process.execute") {
+    if (/^binary:/i.test(normalized)) return `binary:${normalized.slice(7)}`;
+    if (/^(?:shell:[a-z-]+|dynamic-binary|elevated|process|sandbox:disabled)$/i.test(normalized)) return normalized.toLowerCase();
+  }
+  if (kind === "credential.read") return normalized.replace(/^(?:injected-env|literal):/i, (prefix) => prefix.toLowerCase());
+  if ((kind === "filesystem.read" || kind === "filesystem.write") && /^sensitive-path$/i.test(normalized)) return "sensitive-path";
+  return normalized;
 }
 
 export function clip(value: string, maxLength = 180): string {

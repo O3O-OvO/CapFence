@@ -140,6 +140,8 @@ export function buildCapabilityGraph(result: ScanResult, changes: CapabilityChan
   return {
     schemaVersion: 1,
     target: result.target,
+    analysisLimited: result.analysisLimited,
+    scannedFiles: result.scannedFiles,
     nodes: [...nodes.values()].sort((a, b) => a.id.localeCompare(b.id)),
     edges: [...edges.values()].sort((a, b) => a.id.localeCompare(b.id)),
   };

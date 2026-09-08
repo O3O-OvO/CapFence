@@ -21,6 +21,9 @@
     "test": "vitest run",
     "pretest": "pnpm run build",
     "test:watch": "vitest",
+    "test:package": "node scripts/package-smoke.mjs",
+    "benchmark": "node scripts/benchmark.mjs",
+    "demo": "node examples/mcp-demo/run-demo.mjs",
     "prepare": "npm run build",
     "prepack": "npm run build"
   },
@@ -43,11 +46,11 @@
   "homepage": "https://github.com/O3O-OvO/CapFence#readme",
   "dependencies": {
     "jsonc-parser": "^3.3.1",
+    "typescript": "^5.7.3",
     "yaml": "^2.7.0"
   },
   "devDependencies": {
     "@types/node": "^22.10.2",
-    "typescript": "^5.7.3",
     "vitest": "^3.0.5"
   }
 }

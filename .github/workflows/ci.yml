@@ -9,19 +9,27 @@ permissions:
 
 jobs:
   test:
-    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        node: [20, 22, 24]
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
-      - name: Enable Corepack
-        run: corepack enable
+          node-version: ${{ matrix.node }}
+      - name: Install pinned package manager
+        run: npm install --global pnpm@10.34.5
       - name: Install dependencies
         run: pnpm install --frozen-lockfile --ignore-scripts
       - name: Type check
         run: pnpm run check
       - name: Test
         run: pnpm test
-      - name: Build
-        run: pnpm run build
+      - name: Package installation smoke test
+        run: pnpm run test:package
+      - name: Benchmark scan
+        if: matrix.os == 'ubuntu-latest' && matrix.node == 24
+        run: pnpm run benchmark -- 1000

@@ -8,14 +8,14 @@ import { loadPolicy, evaluatePolicy } from "./policy.js";
 import { formatGithub, formatJson, formatSarif, formatText } from "./reporters.js";
 import { buildCapabilityGraph } from "./graph.js";
 import { buildPermissionSummary, formatPermissionSummaryJson, formatPermissionSummaryMarkdown } from "./summary.js";
-import type { Baseline, ReportFormat, Severity } from "./types.js";
+import { CAPABILITY_KINDS, type Baseline, type ReportFormat, type Severity } from "./types.js";
 
 const VERSION = "0.1.0";
 const args = process.argv.slice(2);
 const REPORT_FORMATS = new Set<ReportFormat>(["text", "json", "sarif", "github"]);
 const SEVERITY_LEVELS = new Set<Severity>(["critical", "high", "medium", "low", "info"]);
 const VALUE_OPTIONS = new Set(["--format", "--baseline", "--policy", "--fail-on", "--output"]);
-const BOOLEAN_OPTIONS = new Set(["--fail-existing", "--allow-changes"]);
+const BOOLEAN_OPTIONS = new Set(["--fail-existing", "--allow-changes", "--fail-on-incomplete"]);
 
 function usage(): string {
   return `CapFence ${VERSION}
@@ -36,6 +36,7 @@ Options:
   --fail-on critical|high|medium|low   Exit non-zero at this severity
   --fail-existing                      Include findings already present in baseline
   --allow-changes                      Do not fail on added or widened capabilities
+  --fail-on-incomplete                 Fail if any source could not be analyzed
   --output <file>                      Write output to a file instead of stdout
   --help                               Show this help
 `;
@@ -77,7 +78,16 @@ function validateArguments(): string {
 
 function readBaseline(filePath: string): Baseline {
   const parsed: unknown = JSON.parse(fs.readFileSync(filePath, "utf8"));
-  if (!parsed || typeof parsed !== "object" || !Array.isArray((parsed as Baseline).capabilities)) throw new Error(`Invalid baseline: ${filePath}`);
+  const invalid = (): never => { throw new Error(`Invalid baseline: ${filePath}`); };
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return invalid();
+  const value = parsed as Record<string, unknown>;
+  if (value.schemaVersion !== 1 || typeof value.generatedAt !== "string" || !Array.isArray(value.capabilities)) return invalid();
+  const sources = new Set(["runtime", "configuration", "lifecycle", "build", "instruction"]);
+  for (const item of value.capabilities) {
+    if (!item || typeof item !== "object" || Array.isArray(item)) return invalid();
+    if (!CAPABILITY_KINDS.includes(item.kind) || typeof item.scope !== "string" || !item.scope.trim() || !sources.has(item.source)) return invalid();
+  }
+  if (value.findings !== undefined && (!Array.isArray(value.findings) || value.findings.some((item) => typeof item !== "string"))) return invalid();
   return parsed as Baseline;
 }
 
@@ -105,7 +115,10 @@ function main(): void {
   if (!["scan", "baseline", "diff", "graph", "summary"].includes(command)) throw new Error(`Unknown command: ${command}\n\n${usage()}`);
   const target = validateArguments();
   if (command === "diff" && !option("--baseline")) throw new Error("diff requires --baseline <file>");
+  const thresholdValue = option("--fail-on");
+  if (thresholdValue && !SEVERITY_LEVELS.has(thresholdValue as Severity)) throw new Error(`Unsupported severity threshold: ${thresholdValue}`);
   const result = scanTarget(target);
+  if (has("--fail-on-incomplete") && result.analysisLimited.length > 0) process.exitCode = 1;
   if (command === "graph") {
     const baselinePath = option("--baseline");
     const graphBaseline = baselinePath ? readBaseline(baselinePath) : undefined;
@@ -134,7 +147,7 @@ function main(): void {
   const policyChanges = diff?.changes ?? (policyPath ? result.capabilities.map((capability) => ({ type: "added" as const, current: { kind: capability.kind, scope: capability.scope, source: capability.source } })) : []);
   const policy = policyPath ? evaluatePolicy(policyChanges, loadPolicy(policyPath)) : undefined;
   const output = command === "summary"
-    ? (formatValue === "json" ? formatPermissionSummaryJson(buildPermissionSummary(result, diff?.changes ?? [], policy)) : formatPermissionSummaryMarkdown(buildPermissionSummary(result, diff?.changes ?? [], policy)))
+    ? (formatValue === "json" ? formatPermissionSummaryJson(buildPermissionSummary(result, diff?.changes ?? [], policy, Boolean(baseline))) : formatPermissionSummaryMarkdown(buildPermissionSummary(result, diff?.changes ?? [], policy, Boolean(baseline))))
     : format === "json"
     ? formatJson(result, diff?.changes, policy)
     : format === "sarif"
@@ -144,8 +157,6 @@ function main(): void {
         : formatText(result, diff?.changes, policy);
   writeOutput(output);
 
-  const thresholdValue = option("--fail-on");
-  if (thresholdValue && !SEVERITY_LEVELS.has(thresholdValue as Severity)) throw new Error(`Unsupported severity threshold: ${thresholdValue}`);
   const threshold = thresholdValue as Severity | undefined;
   const knownFindings = new Set(baseline?.findings ?? []);
   const findingFailure = threshold && result.findings.some((finding) => {

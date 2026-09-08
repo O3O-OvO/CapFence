@@ -113,6 +113,7 @@ export interface PermissionSummaryEntry {
   evidence?: string;
   severity?: Severity;
   reason?: string;
+  locations?: Location[];
 }
 
 export interface PermissionSummary {
@@ -123,6 +124,8 @@ export interface PermissionSummary {
   findings: Record<Severity, number>;
   policyViolations: number;
   entries: PermissionSummaryEntry[];
+  scannedFiles?: number;
+  analysisLimited?: AnalysisLimited[];
 }
 
 export type GraphNodeType = "target" | "source" | "subject" | "resource" | "capability" | "finding";
@@ -154,6 +157,8 @@ export interface CapabilityGraphEdge {
 export interface CapabilityGraph {
   schemaVersion: 1;
   target: string;
+  analysisLimited?: AnalysisLimited[];
+  scannedFiles?: number;
   nodes: CapabilityGraphNode[];
   edges: CapabilityGraphEdge[];
 }

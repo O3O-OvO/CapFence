@@ -6,7 +6,7 @@ export function toBaseline(result: ScanResult, generatedAt = new Date().toISOStr
   const seen = new Set<string>();
   const capabilities: BaselineCapability[] = [];
   for (const capability of result.capabilities) {
-    const normalized: BaselineCapability = { kind: capability.kind, scope: normalizeScope(capability.scope), source: capability.source };
+    const normalized: BaselineCapability = { kind: capability.kind, scope: normalizeScope(capability.scope, capability.kind), source: capability.source };
     const fingerprint = capabilityFingerprint(normalized);
     if (!seen.has(fingerprint)) {
       seen.add(fingerprint);
@@ -22,9 +22,9 @@ export function findingFingerprint(finding: Pick<Finding, "id" | "capabilityFing
   return `${finding.id}|${[...finding.capabilityFingerprints].sort().join(",")}`;
 }
 
-export function scopeWidened(previous: string, current: string): boolean {
-  const oldScope = normalizeScope(previous);
-  const newScope = normalizeScope(current);
+export function scopeWidened(previous: string, current: string, kind?: Capability["kind"]): boolean {
+  const oldScope = normalizeScope(previous, kind);
+  const newScope = normalizeScope(current, kind);
   const isDynamicScope = (scope: string): boolean => scope === "dynamic" || scope.startsWith("dynamic-") || scope.includes(":dynamic") || scope.includes("|dynamic");
   const isAnyScope = (scope: string): boolean => scope === "any" || scope.endsWith(":any") || scope.endsWith("|any");
   if (oldScope === newScope) return false;
@@ -60,7 +60,7 @@ export function diffBaseline(previous: Baseline, current: ScanResult): DiffResul
     const fingerprint = capabilityFingerprint(capability);
     if (!previousFingerprints.has(fingerprint)) {
       const sameKind = previousByKind.get(capability.kind) ?? [];
-      const widenedFrom = sameKind.filter((old) => scopeWidened(old.scope, capability.scope));
+      const widenedFrom = sameKind.filter((old) => scopeWidened(old.scope, capability.scope, capability.kind));
       if (widenedFrom.length > 0) {
         changes.push({ type: "widened", current: capability, previous: widenedFrom });
         for (const old of widenedFrom) supersededPrevious.add(capabilityFingerprint(old));

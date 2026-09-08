@@ -1,4 +1,14 @@
-import type { CapabilityChange, Finding, PolicyResult, ScanResult } from "./types.js";
+import type { BaselineCapability, CapabilityChange, Finding, Location, PolicyResult, ScanResult } from "./types.js";
+import { normalizeScope } from "./utils/text.js";
+
+function capabilityLocations(result: ScanResult, capability: BaselineCapability): Location[] {
+  return result.capabilities.filter((item) => item.kind === capability.kind && normalizeScope(item.scope, capability.kind) === normalizeScope(capability.scope, capability.kind)).map((item) => item.location);
+}
+
+function sarifLocation(location: Location) {
+  const { file, ...region } = location;
+  return { physicalLocation: { artifactLocation: { uri: file }, region } };
+}
 
 function severityWeight(severity: Finding["severity"]): number {
   return { critical: 4, high: 3, medium: 2, low: 1, info: 0 }[severity];
@@ -20,7 +30,7 @@ export function formatText(result: ScanResult, changes?: CapabilityChange[], pol
   lines.push(`Files scanned: ${result.scannedFiles}`);
   lines.push(`Capabilities: ${result.capabilities.length}`);
   lines.push("");
-  if (result.findings.length === 0) lines.push("No deterministic security findings.");
+  if (result.findings.length === 0) lines.push(result.analysisLimited.length > 0 ? "No deterministic security findings reported; analysis is incomplete." : "No deterministic security findings.");
   for (const finding of [...result.findings].sort((a, b) => severityWeight(b.severity) - severityWeight(a.severity))) {
     const loc = `${finding.location.file}:${finding.location.startLine}:${finding.location.startColumn}`;
     lines.push(`${finding.severity.toUpperCase()} ${finding.id} ${loc}`);
@@ -101,6 +111,16 @@ export function formatSarif(result: ScanResult, toolVersion = "0.1.0", changes: 
           ],
         },
       },
+      invocations: [{
+        executionSuccessful: result.analysisLimited.length === 0,
+        toolExecutionNotifications: result.analysisLimited.map((item) => ({
+          descriptor: { id: "CF-ANALYSIS-LIMITED" },
+          level: "warning",
+          message: { text: `Analysis incomplete: ${item.message}` },
+          locations: [{ physicalLocation: { artifactLocation: { uri: item.file } } }],
+        })),
+      }],
+      properties: { analysisLimited: result.analysisLimited, scannedFiles: result.scannedFiles },
       results: [
         ...result.findings.map((finding) => ({
           ruleId: finding.id,
@@ -122,23 +142,23 @@ export function formatSarif(result: ScanResult, toolVersion = "0.1.0", changes: 
         ...changes.filter((change) => change.type === "added" || change.type === "widened").map((change) => {
           const capability = change.current;
           if (!capability) return undefined;
-          const source = result.capabilities.find((item) => item.kind === capability.kind && item.scope === capability.scope);
+          const locations = capabilityLocations(result, capability).map(sarifLocation);
           return {
             ruleId: change.type === "added" ? "CF-CAP-001" : "CF-CAP-002",
             level: "error",
             message: { text: `${change.type === "added" ? "Added" : "Widened"} capability: ${capability.kind}:${capability.scope}` },
             properties: { changeType: change.type, capability: `${capability.kind}:${capability.scope}` },
-            ...(source ? { locations: [{ physicalLocation: { artifactLocation: { uri: source.location.file }, region: { startLine: source.location.startLine, startColumn: source.location.startColumn, endLine: source.location.endLine, endColumn: source.location.endColumn } } }] } : {}),
+            ...(locations.length > 0 ? { locations } : {}),
           };
         }).filter((item): item is NonNullable<typeof item> => Boolean(item)),
         ...(policy?.violations ?? []).map((violation) => {
-          const source = result.capabilities.find((item) => item.kind === violation.capability.kind && item.scope === violation.capability.scope);
+          const locations = capabilityLocations(result, violation.capability).map(sarifLocation);
           return {
             ruleId: "CF-POLICY-001",
             level: violation.severity === "critical" || violation.severity === "high" ? "error" : "warning",
             message: { text: `Policy violation: ${violation.capability.kind}:${violation.capability.scope} - ${violation.reason}` },
             properties: { capability: `${violation.capability.kind}:${violation.capability.scope}`, reason: violation.reason },
-            ...(source ? { locations: [{ physicalLocation: { artifactLocation: { uri: source.location.file }, region: { startLine: source.location.startLine, startColumn: source.location.startColumn, endLine: source.location.endLine, endColumn: source.location.endColumn } } }] } : {}),
+            ...(locations.length > 0 ? { locations } : {}),
           };
         }),
       ],
@@ -152,6 +172,23 @@ export function formatGithub(result: ScanResult, changes: CapabilityChange[] = [
   for (const finding of result.findings) {
     const command = finding.severity === "critical" || finding.severity === "high" ? "error" : "warning";
     output.push(`::${command} file=${escapeCommandValue(finding.location.file)},line=${finding.location.startLine},col=${finding.location.startColumn},title=${escapeCommandValue(finding.id)}::${escapeCommandValue(finding.title)}: ${escapeCommandValue(finding.message)} Evidence: ${escapeCommandValue(finding.evidence)}`);
+  }
+  const annotateCapability = (command: string, id: string, capability: BaselineCapability, message: string) => {
+    const locations = capabilityLocations(result, capability);
+    for (const location of locations.length > 0 ? locations : [undefined]) {
+      const attributes = location ? `file=${escapeCommandValue(location.file)},line=${location.startLine},col=${location.startColumn},` : "";
+      output.push(`::${command} ${attributes}title=${id}::${escapeCommandValue(message)}`);
+    }
+  };
+  for (const change of changes) {
+    if (!change.current || change.type === "removed") continue;
+    annotateCapability("error", change.type === "added" ? "CF-CAP-001" : "CF-CAP-002", change.current, `${change.type === "added" ? "Added" : "Widened"} capability: ${change.current.kind}:${change.current.scope}`);
+  }
+  for (const violation of policy?.violations ?? []) {
+    annotateCapability(violation.severity === "critical" || violation.severity === "high" ? "error" : "warning", "CF-POLICY-001", violation.capability, `Policy violation: ${violation.capability.kind}:${violation.capability.scope} - ${violation.reason}`);
+  }
+  for (const item of result.analysisLimited) {
+    output.push(`::warning file=${escapeCommandValue(item.file)},title=CF-ANALYSIS-LIMITED::${escapeCommandValue(`Analysis incomplete: ${item.message}`)}`);
   }
   const summary = summarizeFindings(result);
   output.push(`CapFence: ${summary.critical} critical, ${summary.high} high, ${summary.medium} medium, ${summary.low} low finding(s).`);

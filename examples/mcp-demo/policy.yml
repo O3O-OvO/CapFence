@@ -1,0 +1,10 @@
+deny:
+  - capability: dynamic.execute
+    severity: critical
+    reason: Dynamic commands and endpoints require explicit review.
+  - capability: credential.read
+    severity: critical
+    reason: Credentials must come from a secret reference.
+network:
+  allow:
+    - api.github.com

@@ -30,6 +30,10 @@ inputs:
     description: Report capability changes without failing for added or widened capabilities.
     required: false
     default: "false"
+  fail-on-incomplete:
+    description: Fail when any source could not be analyzed.
+    required: false
+    default: "true"
   output:
     description: Optional output file relative to the caller workspace.
     required: false
@@ -62,6 +66,7 @@ runs:
         CAPFENCE_FAIL_EXISTING: ${{ inputs.fail-existing }}
         CAPFENCE_ALLOW_CHANGES: ${{ inputs.allow-changes }}
         CAPFENCE_OUTPUT: ${{ inputs.output }}
+        CAPFENCE_FAIL_ON_INCOMPLETE: ${{ inputs.fail-on-incomplete }}
       run: |
         set -euo pipefail
         args=(scan "$CAPFENCE_TARGET" --format "$CAPFENCE_FORMAT" --fail-on "$CAPFENCE_FAIL_ON")
@@ -69,5 +74,6 @@ runs:
         if [[ -n "$CAPFENCE_POLICY" ]]; then args+=(--policy "$CAPFENCE_POLICY"); fi
         if [[ "$CAPFENCE_FAIL_EXISTING" == "true" ]]; then args+=(--fail-existing); fi
         if [[ "$CAPFENCE_ALLOW_CHANGES" == "true" ]]; then args+=(--allow-changes); fi
+        if [[ "$CAPFENCE_FAIL_ON_INCOMPLETE" == "true" ]]; then args+=(--fail-on-incomplete); fi
         if [[ -n "$CAPFENCE_OUTPUT" ]]; then args+=(--output "$CAPFENCE_OUTPUT"); fi
         node "$GITHUB_ACTION_PATH/dist/cli.js" "${args[@]}"

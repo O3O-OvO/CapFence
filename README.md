@@ -34,6 +34,17 @@ Current deterministic finding rules include:
 - `CF-PRIV-001`: elevated process or weakened container privilege boundary
 - `CF-MCP-001`: dynamic MCP command, dynamic endpoint, or remote plain HTTP
 
+## See a complete permission diff
+
+Run the end-to-end MCP example to compare a pinned, secret-reference configuration with a deliberately dangerous change:
+
+```bash
+pnpm run build
+pnpm run demo
+```
+
+The example is at [`examples/mcp-demo`](examples/mcp-demo). It uses synthetic placeholders only; never put a real token in a fixture or issue. For a structured evaluation of public repositories, use [`docs/evaluation-template.md`](docs/evaluation-template.md). For a first-user pilot and pinned Action template, see [`docs/first-users.md`](docs/first-users.md).
+
 ## Install and run
 
 Requires Node.js 20 or newer.
@@ -54,13 +65,21 @@ node dist/cli.js scan . --format sarif --output capfence.sarif
 node dist/cli.js scan . --format github
 ```
 
-The npm package has not been published yet. Use the local built CLI above; after npm publication, the same commands can be shortened to `npx capfence`.
+After npm publication, install with `npx capfence@<reviewed-version>` or `npm install --save-dev capfence`. Until then, use the local built CLI above. Do not use an unreviewed floating version in production automation.
 
 ```bash
 node dist/cli.js scan path/to/project --format text
 ```
 
-Supported input files are Markdown skill/instruction files, JSON/JSONC, YAML, JavaScript/TypeScript, Python, shell/PowerShell/Command scripts, `package.json`, and Dockerfiles. Markdown is only inspected inside explicitly labelled shell or PowerShell fences. Files over 2 MiB and common dependency/build directories are skipped. TOML and `.env` files are intentionally not claimed as supported until they have a structured, location-aware analyzer.
+Supported input files are Markdown skill/instruction files, JSON/JSONC, YAML, JavaScript/TypeScript, Python, shell/PowerShell/Command scripts, `package.json`, and Dockerfiles. Markdown is only inspected inside explicitly labelled shell or PowerShell fences. JavaScript/TypeScript analysis uses the TypeScript compiler AST to recognize supported imported API aliases and multiline calls; it is not whole-program analysis. TOML and `.env` files are not supported.
+
+Files are discovered and analyzed incrementally rather than loading the entire tree into memory. Skipped symbolic links, read/traversal failures, parse failures, and supported files over 2 MiB produce `analysisLimited` diagnostics. Intentionally ignored dependency/build directories are outside the scan scope and do not by themselves make analysis incomplete.
+
+All report formats expose incomplete-analysis diagnostics: JSON includes `analysisLimited`, text and Markdown show warnings, GitHub emits warning annotations, and SARIF records tool execution notifications with `executionSuccessful: false`. Permission summaries include diagnostics and `scannedFiles`; without a baseline they do not claim that permission changes are clean. CLI failure on incomplete analysis is opt-in with `--fail-on-incomplete`, for example:
+
+```bash
+node dist/cli.js scan . --fail-on-incomplete
+```
 
 ## Capability baselines
 
@@ -78,6 +97,10 @@ node dist/cli.js diff . --baseline capfence.baseline.json
 
 Capability identity is the normalized `kind + scope`, not the source location. Moving the same launcher does not create a permission change. A new host is shown as `added` and the old host as `removed`; a static host becoming `dynamic` is shown as `widened`. By default, `diff` and any scan supplied with `--baseline` fail when capabilities are added or widened. Use `--allow-changes` when a workflow wants reporting without blocking.
 
+Scan results retain multiple occurrences of the same capability at different source locations. Summary entries expose these as a `locations` array, while baseline identity remains `kind + scope`.
+
+Normalization preserves case in executable names, filesystem paths, and environment-variable names; network hosts are case-insensitive. Older baselines that lowercased every scope have lost the original case: regenerate them from the source and review the diff before committing the replacement. Do not assume that lowercased executable/path/environment scopes are equivalent.
+
 Baselines also retain stable finding identities. With `--fail-on`, findings already present in a baseline do not fail a later scan unless `--fail-existing` is supplied.
 
 Export a stable JSON graph for visualizations and PR summaries:
@@ -86,13 +109,13 @@ Export a stable JSON graph for visualizations and PR summaries:
 node dist/cli.js graph . --output capfence.graph.json
 # Add --baseline to annotate capability nodes as added, removed, or widened.
 node dist/cli.js graph . --baseline capfence.baseline.json --output capfence.graph.json
+```
 
 Export a PR-friendly permission summary:
 
 ```bash
 node dist/cli.js summary . --baseline capfence.baseline.json --policy capfence-policy.yml --output capfence-summary.md
 node dist/cli.js summary . --baseline capfence.baseline.json --format json
-```
 ```
 
 ## Policy
@@ -123,11 +146,11 @@ node dist/cli.js diff . \
   --fail-on high
 ```
 
-Policy checks apply to `added` and `widened` capabilities. Removed capabilities are included in the diff but cannot create a policy violation.
+Policy checks apply to `added` and `widened` capabilities. Removed capabilities are included in the diff but cannot create a policy violation. An explicit `network: { allow: [] }` denies all added/widened network capabilities; omitting `network.allow` leaves network access unrestricted by the allowlist (explicit deny rules still apply). GitHub and SARIF include concrete capability-change and policy annotations with matching source locations; policy annotations include the reason.
 
 ## GitHub Actions
 
-CapFence ships as a reusable composite action. It provisions Node.js 20 for its own build and scan steps. Pin the repository to a commit in production workflows:
+CapFence ships as a reusable composite action. It provisions Node.js 20 for its own build and scan steps. Unlike the CLI default, the Action input `fail-on-incomplete` defaults to `true`; set it to `false` explicitly to permit incomplete scans. Pin the repository to a commit in production workflows:
 
 ```yaml
 name: CapFence
@@ -156,7 +179,7 @@ For SARIF upload, set `format: sarif` and `output: capfence.sarif`, then pass th
 Exit codes:
 
 - `0`: scan completed and no configured threshold, policy violation, or capability-change failure was hit
-- `1`: a finding met `--fail-on`, a policy violation was found, or an added/widened capability was detected without `--allow-changes`
+- `1`: a finding met `--fail-on`, a policy violation was found, an added/widened capability was detected without `--allow-changes`, or analysis was incomplete with `--fail-on-incomplete`
 - `2`: invalid CLI arguments, policy, baseline, or an unreadable target
 
 ## Design boundaries
@@ -171,7 +194,11 @@ pnpm install
 pnpm run check
 pnpm test
 pnpm run build
+pnpm run test:package
+pnpm run benchmark -- 1000
 ```
+
+CI covers Node.js 20, 22, and 24 on Linux and Windows. `test:package` smoke-tests the packed package; the benchmark generates a 1,000-file input to exercise incremental scanning.
 
 The project is TypeScript/ESM with no network access required during a scan. Add a focused fixture under `tests/fixtures` for every new rule and verify both its finding and its safe counterpart.
 

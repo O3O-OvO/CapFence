@@ -1,6 +1,7 @@
 import path from "node:path";
 
-import { discoverFiles, type SourceFile } from "./discovery.js";
+import { iterateFiles, type SourceFile } from "./discovery.js";
+import { inspectJavaScript } from "./javascript.js";
 import { parseJsonLike, parseYaml, walkValues, type ParsedStructured } from "./parsers.js";
 import { locationFromOffsets, locationForLine } from "./utils/locations.js";
 import { clip, isDynamic, normalizeScope, redactSecrets } from "./utils/text.js";
@@ -44,28 +45,39 @@ const LIFECYCLE_HOOKS = new Set([
   "postpack",
 ]);
 
+const capabilityOccurrences = new WeakMap<Capability[], Set<string>>();
+const findingIdentities = new WeakMap<Finding[], Set<string>>();
+
 function addCapability(capabilities: Capability[], context: AnalyzeContext, kind: CapabilityKind, scope: string, evidence: string, location?: Location): Capability {
   const capability: Capability = {
     kind,
-    scope: normalizeScope(scope),
+    scope: normalizeScope(scope, kind),
     source: context.source,
     location: location ?? locationForLine(context.file, context.content, (context.lineOffset ?? 0) + 1),
     evidence: redactSecrets(clip(evidence)),
     ...(context.subject ? { subject: context.subject } : {}),
   };
-  const fingerprint = capabilityFingerprint(capability);
-  if (!capabilities.some((item) => capabilityFingerprint(item) === fingerprint)) capabilities.push(capability);
+  const key = JSON.stringify([capabilityFingerprint(capability), capability.source, capability.subject, capability.location]);
+  let identities = capabilityOccurrences.get(capabilities);
+  if (!identities) capabilityOccurrences.set(capabilities, identities = new Set());
+  if (!identities.has(key)) {
+    identities.add(key);
+    capabilities.push(capability);
+  }
   return capability;
 }
 
 export function capabilityFingerprint(capability: Pick<Capability, "kind" | "scope">): string {
-  return `${capability.kind}|${normalizeScope(capability.scope)}`;
+  return `${capability.kind}|${normalizeScope(capability.scope, capability.kind)}`;
 }
 
 function addFinding(findings: Finding[], id: string, severity: Severity, title: string, message: string, remediation: string, location: Location, evidence: string, capabilities: Capability[]): void {
   const fingerprints = capabilities.map(capabilityFingerprint);
-  const key = `${id}|${location.file}|${location.startLine}|${message}`;
-  if (findings.some((finding) => `${finding.id}|${finding.location.file}|${finding.location.startLine}|${finding.message}` === key)) return;
+  const key = JSON.stringify([id, location, message]);
+  let identities = findingIdentities.get(findings);
+  if (!identities) findingIdentities.set(findings, identities = new Set());
+  if (identities.has(key)) return;
+  identities.add(key);
   findings.push({
     id,
     severity,
@@ -128,7 +140,7 @@ function analyzeCommandText(context: AnalyzeContext, capabilities: Capability[],
         const dynamicCapability = addCapability(capabilities, current, "dynamic.execute", "shell", trimmed, loc);
         addFinding(findings, "CF-EXEC-001", "high", "Dynamic shell execution", "A shell interpreter receives externally controlled or templated input.", "Use a fixed argument list and validate every value before invoking a shell.", loc, trimmed, [processCapability, dynamicCapability]);
       }
-      if (/\b(?:-EncodedCommand|-enc)\b/i.test(effective)) {
+      if (/(?:^|\s)-(?:EncodedCommand|enc)(?=\s|=|$)/i.test(effective)) {
         const encoded = addCapability(capabilities, current, "dynamic.execute", "encoded", trimmed, loc);
         addFinding(findings, "CF-DYN-001", "high", "Encoded command execution", "An encoded PowerShell command hides the code that will execute.", "Replace encoded commands with reviewed, versioned scripts.", loc, trimmed, [processCapability, encoded]);
       }
@@ -272,9 +284,10 @@ function analyzeMcpObject(source: SourceFile, value: unknown, capabilities: Capa
           addFinding(findings, "CF-MCP-001", "high", "Remote MCP endpoint uses plain HTTP", "A remote MCP endpoint is configured without transport encryption.", "Use HTTPS or restrict the endpoint to loopback during local development.", loc, server.url, [network]);
         }
       } catch {
-        if (isDynamic(server.url)) {
-          addFinding(findings, "CF-MCP-001", "high", "Dynamic MCP endpoint", "The MCP endpoint host is resolved at runtime and cannot be reviewed statically.", "Use a fixed HTTPS endpoint or make the allowed host explicit in policy.", loc, server.url, [network]);
-        }
+        // Invalid or templated URLs retain the network scope recorded above.
+      }
+      if (isDynamic(server.url)) {
+        addFinding(findings, "CF-MCP-001", "high", "Dynamic MCP endpoint", "The MCP endpoint host is resolved at runtime and cannot be reviewed statically.", "Use a fixed HTTPS endpoint or make the allowed host explicit in policy.", loc, server.url, [network]);
       }
     }
     for (const [key, rawValue] of Object.entries(server.env ?? {})) {
@@ -323,11 +336,12 @@ function analyzeStructured(source: SourceFile, capabilities: Capability[], findi
     }
   }
   const roots: Array<{ key: string; value: unknown }> = [];
-  walkValues(value, (child, keyPath) => {
+  const traversalIssues = walkValues(value, (child, keyPath) => {
     const key = keyPath.at(-1) ?? "";
     if (["mcpServers", "servers"].includes(key) && child && typeof child === "object") roots.push({ key, value: child });
     if (keyPath.join(".") === "customizations.vscode.mcp.servers" && child && typeof child === "object") roots.push({ key: "vscode.mcp.servers", value: child });
   });
+  for (const issue of traversalIssues) analysisLimited.push({ file: source.relativePath, message: issue.message });
   for (const root of roots) {
     const rootOffset = source.content.indexOf(`\"${root.key}\"`);
     analyzeMcpObject(source, root.value, capabilities, findings, `mcp:${root.key}`, rootOffset);
@@ -358,7 +372,41 @@ function analyzeSource(source: SourceFile, root: string, capabilities: Capabilit
     analyzeCommandText({ file, content: source.content, root, source: "runtime" }, capabilities, findings);
     return;
   }
-  if (/\.(js|mjs|cjs|ts|mts|cts|py)$/i.test(file)) {
+  if (/\.(js|mjs|cjs|ts|mts|cts)$/i.test(file)) {
+    const context: AnalyzeContext = { file, content: source.content, root, source: "runtime" };
+    const inspected = inspectJavaScript(file, source.content);
+    for (const message of inspected.issues) analysisLimited.push({ file, message });
+    for (const use of inspected.uses) {
+      const loc = lineLocation(context, use.start, use.end - use.start);
+      if (use.kind === "process") {
+        const process = addCapability(capabilities, context, "process.execute", use.dynamic ? "shell:dynamic" : use.value ? `binary:${use.value}` : "process", use.text, loc);
+        if (use.dynamic) {
+          const dynamic = addCapability(capabilities, context, "dynamic.execute", "process-input", use.text, loc);
+          addFinding(findings, "CF-EXEC-001", "high", "Dynamic process execution", "A process API receives an argument that cannot be resolved statically.", "Use an allowlisted executable and pass structured arguments without a shell.", loc, use.text, [process, dynamic]);
+        }
+        if (use.command !== undefined) analyzeCommandText({ ...context, content: use.command, lineOffset: loc.startLine - 1, columnOffset: loc.startColumn - 1 }, capabilities, findings);
+      } else if (use.kind === "interpreter") {
+        const process = addCapability(capabilities, context, "process.execute", "shell:dynamic", use.text, loc);
+        const dynamic = addCapability(capabilities, context, "dynamic.execute", "interpreter", use.text, loc);
+        addFinding(findings, "CF-EXEC-001", "high", "Dynamic code execution", "Source code is passed to a dynamic interpreter.", "Avoid eval-like interpreters; use an allowlisted command or parser.", loc, use.text, [process, dynamic]);
+      } else if (use.kind === "network") {
+        if (use.value !== undefined) addNetworkCapability(capabilities, context, use.value, loc);
+        else addCapability(capabilities, context, "network.connect", "dynamic", use.text, loc);
+      } else if (use.kind === "read" && use.value !== undefined && SENSITIVE_PATHS.test(use.value)) {
+        addCapability(capabilities, context, "filesystem.read", "sensitive-path", use.text, loc);
+      } else if (use.kind === "literal") {
+        for (const token of TOKEN_PATTERNS) {
+          const match = token.re.exec(use.value ?? "");
+          token.re.lastIndex = 0;
+          if (!match) continue;
+          const credential = addCapability(capabilities, context, "credential.read", `literal:${token.provider}`, "credential value redacted", loc);
+          addFinding(findings, "CF-CRED-002", "critical", "Credential embedded in active content", `${token.provider} material appears in a source literal.`, "Revoke the exposed credential, remove it from source, and inject it through a secret store.", loc, match[0], [credential]);
+        }
+      }
+    }
+    return;
+  }
+  if (/\.py$/i.test(file)) {
     const context: AnalyzeContext = { file, content: source.content, root, source: "runtime" };
     const lines = source.content.split(/\r?\n/);
     for (let i = 0; i < lines.length; i += 1) {
@@ -388,15 +436,23 @@ function analyzeSource(source: SourceFile, root: string, capabilities: Capabilit
 }
 
 export function scanTarget(target: string): ScanResult {
-  const discovered = discoverFiles(target);
   const capabilities: Capability[] = [];
   const findings: Finding[] = [];
   const analysisLimited: ScanResult["analysisLimited"] = [];
-  for (const source of discovered.files) analyzeSource(source, discovered.root, capabilities, findings, analysisLimited);
+  const discovered = iterateFiles(target, { onIssue: (issue) => analysisLimited.push(issue) });
+  let scannedFiles = 0;
+  for (const source of discovered.files) {
+    scannedFiles += 1;
+    try {
+      analyzeSource(source, discovered.root, capabilities, findings, analysisLimited);
+    } catch {
+      analysisLimited.push({ file: source.relativePath, message: "Unable to complete analysis of this file." });
+    }
+  }
   return {
     schemaVersion: 1,
     target: path.resolve(target),
-    scannedFiles: discovered.files.length,
+    scannedFiles,
     capabilities,
     findings,
     analysisLimited,
