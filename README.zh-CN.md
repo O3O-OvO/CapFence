@@ -4,6 +4,8 @@
 
 面向 AI Agent Skill 与 MCP Server 的能力差异安全检查工具。
 
+**观看中英双语动效演示：** [CapFence 评测演示视频](https://github.com/O3O-OvO/CapFence/releases/download/v0.1.0-demo/capfence-evaluation.mp4)
+
 CapFence 对仓库做静态分析，回答一个用于代码审查的实际问题：**这个 Agent、Skill、Server 或构建钩子能够做什么，它的能力是否发生了变化？** 它不会执行被扫描目录中的任何命令。
 
 首个版本刻意保持小而确定：提取能力清单，为高信号风险模式提供源码位置，并与提交到仓库中的基线比较，让 Pull Request 可以按权限变化进行审查。

@@ -4,6 +4,8 @@
 
 Capability-diff security for AI agent skills and MCP servers.
 
+**Watch the bilingual animated demo:** [CapFence Evaluation Demo](https://github.com/O3O-OvO/CapFence/releases/download/v0.1.0-demo/capfence-evaluation.mp4)
+
 CapFence statically inspects a repository and answers a practical review question: **what can this agent, skill, server, or build hook do, and did that capability change?** It never executes commands from the scanned tree.
 
 The first release is intentionally small and deterministic. It extracts a capability manifest, reports high-signal risky patterns with source locations, and compares the result with a checked-in baseline so a pull request can be reviewed as a permission diff.
