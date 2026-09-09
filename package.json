@@ -1,5 +1,5 @@
 {
-  "name": "capfence",
+  "name": "@brian12138/capfence",
   "version": "0.1.0",
   "description": "Capability-diff security for AI agent skills and MCP servers.",
   "type": "module",

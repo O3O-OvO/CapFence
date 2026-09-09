@@ -67,7 +67,7 @@ node dist/cli.js scan . --format sarif --output capfence.sarif
 node dist/cli.js scan . --format github
 ```
 
-After npm publication, install with `npx capfence@<reviewed-version>` or `npm install --save-dev capfence`. Until then, use the local built CLI above. Do not use an unreviewed floating version in production automation.
+After npm publication, install with `npx @brian12138/capfence@<reviewed-version>` or `npm install --save-dev @brian12138/capfence`. Until then, use the local built CLI above. Do not use an unreviewed floating version in production automation.
 
 ```bash
 node dist/cli.js scan path/to/project --format text

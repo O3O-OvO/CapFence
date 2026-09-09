@@ -26,7 +26,7 @@ try {
   fs.mkdirSync(consumer);
   fs.writeFileSync(path.join(consumer, "package.json"), JSON.stringify({ private: true, type: "module" }));
   npm(["install", "--ignore-scripts", "--production", path.join(temp, archives[0])], consumer);
-  const installed = path.join(consumer, "node_modules", "capfence");
+  const installed = path.join(consumer, "node_modules", "@brian12138", "capfence");
   const manifest = JSON.parse(fs.readFileSync(path.join(installed, "package.json"), "utf8"));
   assert.ok(manifest.dependencies.typescript, "AST parser must be a runtime dependency");
   const cli = path.join(installed, manifest.bin.capfence);
