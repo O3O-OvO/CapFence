@@ -14,7 +14,7 @@ The goal of the pilot is retained use in real pull requests, not star count.
 
 ## Pinned Action template
 
-Use the reviewed current commit SHA `399f2a2` (or the full 40-character SHA from GitHub) instead of a floating branch reference:
+Use the reviewed current commit SHA `449f59fa48ca4245a89c99d0d7d20f6d73e6480e` instead of a floating branch reference:
 
 ```yaml
 name: CapFence
@@ -27,7 +27,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: O3O-OvO/CapFence@<CAPFENCE_COMMIT_SHA>
+      - uses: O3O-OvO/CapFence@449f59fa48ca4245a89c99d0d7d20f6d73e6480e
         with:
           path: path/to/skill-or-mcp
           baseline: capfence.baseline.json
