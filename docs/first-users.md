@@ -14,7 +14,7 @@ The goal of the pilot is retained use in real pull requests, not star count.
 
 ## Pinned Action template
 
-Replace `<CAPFENCE_COMMIT_SHA>` with a reviewed commit SHA:
+Use the reviewed current commit SHA `399f2a2` (or the full 40-character SHA from GitHub) instead of a floating branch reference:
 
 ```yaml
 name: CapFence
