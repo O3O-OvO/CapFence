@@ -1,0 +1,2 @@
+patchedDependencies:
+  '@lezer/python@1.1.19': patches/@lezer__python@1.1.19.patch

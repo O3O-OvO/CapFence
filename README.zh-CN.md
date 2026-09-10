@@ -71,6 +71,8 @@ npm install --save-dev --save-exact @brian12138/capfence@0.1.0
 
 支持的输入包括 Markdown Skill/指令文件、JSON/JSONC、YAML、JavaScript/TypeScript、Python、Shell/PowerShell/Command 脚本、`package.json` 与 Dockerfile。Markdown 仅检查显式标注为 Shell 或 PowerShell 的代码块。JavaScript/TypeScript 分析使用 TypeScript 编译器 AST，识别受支持 API 的导入别名和跨行调用，但不进行全程序分析。TOML 和 `.env` 不属于支持格式。
 
+Python 使用 Lezer 语法解析器，通过有限的导入和客户端绑定跟踪识别 requests、httpx、urllib 调用；不解析任意数据流或全部 Python 名称绑定语义，无效或不支持的语法会产生分析限制诊断。JavaScript/TypeScript 文件 API 会记录字面量路径或未知路径的 `dynamic` 范围，覆盖常见读写、目录和重命名操作。未知进程参数仍保留审查信号，但固定可执行文件且未启用 Shell 的调用不再标为动态 Shell。Docker 命令规则检查执行指令，不检查镜像名或标签。这些变化可能为旧基线增加能力，重新生成基线前应审查差异。
+
 扫描逐个发现并分析文件，不会一次性将整个目录树内容加载到内存。跳过的符号链接、读取或目录遍历失败、解析失败，以及超过 2 MiB 的受支持文件都会产生 `analysisLimited` 诊断。有意忽略的依赖/构建目录不在扫描范围内，本身不会导致分析不完整。
 
 所有报告格式都会展示分析限制：JSON 包含 `analysisLimited`，文本和 Markdown 显示警告，GitHub 输出警告注解，SARIF 记录工具执行通知并设置 `executionSuccessful: false`。权限摘要包含诊断及 `scannedFiles`；没有基线时不会声称权限未发生变化。CLI 默认不因分析不完整而失败，需要显式启用 `--fail-on-incomplete`：
