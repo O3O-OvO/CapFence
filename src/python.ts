@@ -71,12 +71,19 @@ export function inspectPython(content: string): { uses: PythonUse[]; issues: str
       for (const parameter of params ? children(params) : []) if (parameter.name === "VariableName") bindings.set(text(parameter), "local");
     }
     if (node.name === "WithStatement") {
-      bindings = new Map(bindings);
       for (let i = 0; i < parts.length; i++) {
-        if (parts[i]?.name !== "as" || parts[i + 1]?.name !== "VariableName") continue;
+        if (parts[i]?.name !== "as" || !parts[i + 1]) continue;
+        if (parts[i + 1]?.name !== "VariableName") {
+          const shadow = (target: Node): void => {
+            if (target.name === "VariableName") bindings.set(text(target), "local");
+            else for (const child of children(target)) shadow(child);
+          };
+          shadow(parts[i + 1]!);
+          continue;
+        }
         const name = text(parts[i + 1]!);
         const type = clientType(parts[i - 1], bindings);
-        bindings.delete(name);
+        bindings.set(name, "local");
         if (type) bindings.set(name, type);
       }
     }
@@ -89,23 +96,36 @@ export function inspectPython(content: string): { uses: PythonUse[]; issues: str
     if (node.name === "CallExpression") {
       const name = resolve(node.firstChild ?? undefined, bindings);
       const args = parts.find(child => child.name === "ArgList");
-      const argumentsList = args ? children(args).filter(child => !["(", ")", ","].includes(child.name)) : [];
-      const first = literal(argumentsList[0]);
+      const positional: Node[] = [];
+      const keywords = new Map<string, Node>();
+      let argumentParts: Node[] = [];
+      const finishArgument = (): void => {
+        if (argumentParts[0]?.name === "VariableName" && argumentParts[1]?.name === "AssignOp" && argumentParts[2]) keywords.set(text(argumentParts[0]), argumentParts[2]);
+        else if (argumentParts[0]) positional.push(argumentParts[0]);
+        argumentParts = [];
+      };
+      for (const child of args ? children(args) : []) {
+        if (child.name === "," || child.name === ")") finishArgument();
+        else if (child.name !== "(") argumentParts.push(child);
+      }
+      const argument = (index: number, keyword: string): Node | undefined => keywords.get(keyword) ?? positional[index];
+      const first = literal(argument(0, "args"));
       if (name && /^(?:(?:httpx|requests)\.(?:get|post|put|patch|delete|head|options|request)|urllib\.request\.urlopen)$/.test(name)) {
-        add(node, { kind: "network", value: name.endsWith(".request") ? literal(argumentsList[1]) : first });
+        add(node, { kind: "network", value: literal(argument(name.endsWith(".request") ? 1 : 0, "url")) });
       }
       if (name && /^(?:subprocess\.(?:run|Popen|call|check_call|check_output)|os\.system)$/.test(name)) {
-        const shell = name === "os.system" || /\bshell\s*=\s*True\b/.test(text(node));
+        const shellOption = keywords.get("shell");
+        const shell = name === "os.system" || !!shellOption && text(shellOption) !== "False";
         const dynamic = first === undefined;
         add(node, { kind: "process", dynamic, shell, command: shell ? first : undefined });
       }
       if (!name && node.firstChild?.name === "VariableName" && ["eval", "exec"].includes(text(node.firstChild))) add(node, { kind: "interpreter" });
       if (!name && node.firstChild?.name === "VariableName" && text(node.firstChild) === "open") {
-        const modeIndex = argumentsList.findIndex((argument, index) => text(argument) === "mode" && argumentsList[index + 1]?.name === "AssignOp");
-        const modeNode = modeIndex >= 0 ? argumentsList[modeIndex + 2] : argumentsList[1];
+        const file = literal(argument(0, "file"));
+        const modeNode = argument(1, "mode");
         const mode = modeNode ? literal(modeNode) : "r";
-        if (!mode || mode.startsWith("r") || mode.includes("+")) add(node, { kind: "read", value: first });
-        if (!mode || /[wax+]/.test(mode)) add(node, { kind: "write", value: first });
+        if (!mode || mode.startsWith("r") || mode.includes("+")) add(node, { kind: "read", value: file });
+        if (!mode || /[wax+]/.test(mode)) add(node, { kind: "write", value: file });
       }
     }
     for (const child of parts) visit(child, bindings);

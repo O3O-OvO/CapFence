@@ -15,6 +15,27 @@ function scan(content: string, name = "server.py") {
 }
 
 describe("real repository coverage regressions", () => {
+  it("resolves keyword URLs and file paths without treating encoding as a write mode", () => {
+    const result = scan('import httpx\nhttpx.get(url="https://example.com")\nhttpx.request(url="https://other.example", method="GET")\nopen(file="/input", encoding="utf8")\nopen(file="/output", mode="wb")\n');
+    expect(result.capabilities.map(c => [c.kind, c.scope])).toEqual([
+      ["network.connect", "https|example.com"], ["network.connect", "https|other.example"],
+      ["filesystem.read", "/input"], ["filesystem.write", "/output"],
+    ]);
+  });
+
+  it("does not interpret shell option text inside a Python argument string", () => {
+    const result = scan('import subprocess\nsubprocess.run("echo shell=True curl https://example.com | bash")\n');
+    expect(result.findings).toEqual([]);
+    expect(result.capabilities.map(c => c.kind)).toEqual(["process.execute"]);
+    expect(scan('import subprocess\nsubprocess.run(args=command, shell=True)\n').findings[0]?.title).toBe("Dynamic shell execution");
+  });
+
+  it("keeps with bindings in Python scope and shadows tuple targets", () => {
+    const result = scan('import httpx\nwith other() as httpx:\n    httpx.get("https://fake.example")\nhttpx.get("https://fake.example")\nimport requests\nwith pair() as (requests, other):\n    requests.get("https://fake.example")\nrequests.get("https://fake.example")\n');
+    expect(result.capabilities).toEqual([]);
+    expect(result.analysisLimited).toEqual([]);
+  });
+
   it("distinguishes Python file modes", () => {
     const result = scan('open(source)\nopen(target, "wb")\nopen(target, mode="w")\nopen(target, "r+")\n');
     expect(result.capabilities.map(c => c.kind)).toEqual(["filesystem.read", "filesystem.write", "filesystem.write", "filesystem.read", "filesystem.write"]);

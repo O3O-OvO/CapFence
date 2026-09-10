@@ -6,7 +6,7 @@ settings:
 
 patchedDependencies:
   '@lezer/python@1.1.19':
-    hash: 6f519a756a15b961dec212ff0f73d4b535546bbf3f6e2a8e0f3fff4360cb8e80
+    hash: ed1f3bb48657bc516107451ea66146c6d7cb22f52e011aa6e749da1648498087
     path: patches/@lezer__python@1.1.19.patch
 
 importers:
@@ -15,7 +15,7 @@ importers:
     dependencies:
       '@lezer/python':
         specifier: ^1.1.19
-        version: 1.1.19(patch_hash=6f519a756a15b961dec212ff0f73d4b535546bbf3f6e2a8e0f3fff4360cb8e80)
+        version: 1.1.19(patch_hash=ed1f3bb48657bc516107451ea66146c6d7cb22f52e011aa6e749da1648498087)
       jsonc-parser:
         specifier: ^3.3.1
         version: 3.3.1
@@ -2209,7 +2209,7 @@ snapshots:
     dependencies:
       '@lezer/common': 1.5.2
 
-  '@lezer/python@1.1.19(patch_hash=6f519a756a15b961dec212ff0f73d4b535546bbf3f6e2a8e0f3fff4360cb8e80)':
+  '@lezer/python@1.1.19(patch_hash=ed1f3bb48657bc516107451ea66146c6d7cb22f52e011aa6e749da1648498087)':
     dependencies:
       '@lezer/common': 1.5.2
       '@lezer/highlight': 1.2.3
