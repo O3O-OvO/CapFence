@@ -11,6 +11,13 @@ export interface JavaScriptUse {
 }
 
 type Binding = { module: string; member?: string };
+
+function commandExecutable(command: string | undefined): string | undefined {
+  if (!command) return undefined;
+  // Recognize only a literal leading executable; shell expansions stay unresolved.
+  const match = /^\s*(?:"([^"$`%]+)"|'([^'$`%]+)'|([A-Za-z0-9_./\\:-]+))(?=\s|$)/.exec(command);
+  return match?.[1] ?? match?.[2] ?? match?.[3];
+}
 const processMethods = new Set(["exec", "execSync", "execFile", "execFileSync", "spawn", "spawnSync", "fork"]);
 const networkMethods = new Set(["get", "post", "put", "patch", "delete", "head", "options", "request"]);
 
@@ -114,7 +121,7 @@ export function inspectJavaScript(file: string, content: string): { uses: JavaSc
           && (!ts.isArrayLiteralExpression(args) || values.some((value) => value === undefined)));
         // Only command-string APIs and known shell executables expose command text to shell rules.
         const shell = first !== undefined && /(?:^|[\\/])(?:ba|z|da)?sh$|(?:^|[\\/])(?:pwsh|powershell|cmd)(?:\.exe)?$/i.test(first);
-        add(node, { kind: "process", value: shellCommand ? undefined : first, dynamic, command: shellCommand ? first : shell && !dynamic ? [first, ...values].join(" ") : undefined });
+        add(node, { kind: "process", value: shellCommand ? commandExecutable(first) : first, dynamic, command: shellCommand ? first : shell && !dynamic ? [first, ...values].join(" ") : undefined });
       }
       const globalFetch = ts.isIdentifier(node.expression) && node.expression.text === "fetch" && !checker.getSymbolAtLocation(node.expression);
       if (globalFetch || binding?.module === "axios" && (!binding.member || networkMethods.has(binding.member)) || (binding?.module === "http" || binding?.module === "https") && ["get", "request"].includes(binding.member ?? "")) {

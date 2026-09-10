@@ -60,7 +60,14 @@ node dist/cli.js scan . --format sarif --output capfence.sarif
 node dist/cli.js scan . --format github
 ```
 
-`npx capfence` 需要在 npm 发布后才能用于任意外部目录；在发布前，请使用本地构建的 `node dist/cli.js`。
+已发布 npm 包 `@brian12138/capfence@0.1.0`。无需克隆仓库即可运行：
+
+```bash
+npx @brian12138/capfence@0.1.0 scan path/to/project
+npm install --save-dev --save-exact @brian12138/capfence@0.1.0
+```
+
+生产自动化应固定经过审查的版本，不要使用未经审查的浮动版本。
 
 支持的输入包括 Markdown Skill/指令文件、JSON/JSONC、YAML、JavaScript/TypeScript、Python、Shell/PowerShell/Command 脚本、`package.json` 与 Dockerfile。Markdown 仅检查显式标注为 Shell 或 PowerShell 的代码块。JavaScript/TypeScript 分析使用 TypeScript 编译器 AST，识别受支持 API 的导入别名和跨行调用，但不进行全程序分析。TOML 和 `.env` 不属于支持格式。
 

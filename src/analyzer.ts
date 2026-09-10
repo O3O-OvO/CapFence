@@ -188,7 +188,9 @@ function analyzeCommandText(context: AnalyzeContext, capabilities: Capability[],
 
     if (/\b(?:npx|pnpm\s+dlx|yarn\s+dlx|bunx|uvx|pipx\s+run)\b/i.test(effective)) {
       const runner = effective.match(/\b(?:npx|pnpm\s+dlx|yarn\s+dlx|bunx|uvx|pipx\s+run)\b[^\s]*/i)?.[0] ?? "runner";
-      const packageRef = effective.replace(/^.*?\b(?:npx|pnpm\s+dlx|yarn\s+dlx|bunx|uvx|pipx\s+run)\b\s*/i, "").trim().split(/\s+/)[0] ?? "unknown";
+      const runnerArguments = effective.replace(/^.*?\b(?:npx|pnpm\s+dlx|yarn\s+dlx|bunx|uvx|pipx\s+run)\b\s*/i, "").trim();
+      // Skip known standalone flags only; unknown options may consume a value.
+      const packageRef = runnerArguments.replace(/^(?:(?:--yes|-y|--no-install|--quiet|-q|--)\s+)*/, "").split(/\s+/)[0]?.replace(/^(['"])(.*)\1$/, "$2") ?? "unknown";
       const pinned = /(?:@\d+\.\d+\.\d+(?:[-+][^\s]+)?$|==\d+\.\d+\.\d+$)/.test(packageRef);
       const lifecycle = addCapability(capabilities, current, "package.lifecycle", `${runner}:runtime-fetch`, trimmed, loc);
       if (!pinned && !/--no-install\b/.test(effective)) addFinding(findings, "CF-PKG-001", "medium", "Unpinned package execution", "A package runner may resolve and execute a different version on each run.", "Pin the exact package version and verify its integrity.", loc, trimmed, [lifecycle]);

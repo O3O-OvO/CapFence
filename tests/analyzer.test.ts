@@ -37,6 +37,31 @@ function scanContent(name: string, content: string) {
 }
 
 describe("capability analysis", () => {
+  it.each([
+    "npx --yes @example/tool@1.2.3",
+    "npx -y --quiet @example/tool@1.2.3",
+    'npx --yes "@example/tool@1.2.3"',
+    "pnpm dlx -- @example/tool@1.2.3",
+    "uvx --quiet example==1.2.3",
+  ])("accepts pinned runner arguments: %s", (command) => {
+    for (const result of [
+      scanContent("run.sh", command),
+      scanContent("mcp.json", JSON.stringify({ mcpServers: { tool: { command: "npx", args: ["--yes", "@example/tool@1.2.3"] } } })),
+    ]) {
+      expect(result.capabilities.some(item => item.kind === "package.lifecycle")).toBe(true);
+      expect(result.findings.some(item => item.id === "CF-PKG-001")).toBe(false);
+    }
+  });
+
+  it.each([
+    "npx --yes @example/tool",
+    "npx -y @example/tool@latest",
+    "npx --cache cache@1.2.3 @example/tool",
+    "npx --yes @example/tool --label fixed@1.2.3",
+  ])("keeps unpinned runner arguments reviewable: %s", (command) => {
+    expect(scanContent("run.sh", command).findings.some(item => item.id === "CF-PKG-001")).toBe(true);
+  });
+
   it.each(["-EncodedCommand", "-enc", "-ENC", "-EncodedCommand="])("detects PowerShell encoded flag %s", (flag) => {
     const result = scanContent("run.ps1", `powershell ${flag} SQBFAFgA`);
     expect(result.findings.some((finding) => finding.id === "CF-DYN-001")).toBe(true);
