@@ -15,6 +15,10 @@ function scan(content: string, name = "server.py") {
 }
 
 describe("real repository coverage regressions", () => {
+  it("distinguishes Python file modes", () => {
+    const result = scan('open(source)\nopen(target, "wb")\nopen(target, mode="w")\nopen(target, "r+")\n');
+    expect(result.capabilities.map(c => c.kind)).toEqual(["filesystem.read", "filesystem.write", "filesystem.write", "filesystem.read", "filesystem.write"]);
+  });
   it("supports async context-manager tuple targets without hiding invalid syntax", () => {
     const result = scan('import httpx\nasync def run():\n    async with streams() as (a, b):\n        httpx.get("https://example.com")\n');
     expect(result.analysisLimited).toEqual([]);

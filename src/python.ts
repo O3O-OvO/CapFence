@@ -2,7 +2,7 @@ import { parser } from "@lezer/python";
 
 type Node = ReturnType<typeof parser.parse>["topNode"];
 export interface PythonUse {
-  kind: "network" | "process" | "read" | "literal" | "interpreter";
+  kind: "network" | "process" | "read" | "write" | "literal" | "interpreter";
   start: number;
   end: number;
   text: string;
@@ -100,7 +100,13 @@ export function inspectPython(content: string): { uses: PythonUse[]; issues: str
         add(node, { kind: "process", dynamic, shell, command: shell ? first : undefined });
       }
       if (!name && node.firstChild?.name === "VariableName" && ["eval", "exec"].includes(text(node.firstChild))) add(node, { kind: "interpreter" });
-      if (!name && node.firstChild?.name === "VariableName" && text(node.firstChild) === "open") add(node, { kind: "read", value: first });
+      if (!name && node.firstChild?.name === "VariableName" && text(node.firstChild) === "open") {
+        const modeIndex = argumentsList.findIndex((argument, index) => text(argument) === "mode" && argumentsList[index + 1]?.name === "AssignOp");
+        const modeNode = modeIndex >= 0 ? argumentsList[modeIndex + 2] : argumentsList[1];
+        const mode = modeNode ? literal(modeNode) : "r";
+        if (!mode || mode.startsWith("r") || mode.includes("+")) add(node, { kind: "read", value: first });
+        if (!mode || /[wax+]/.test(mode)) add(node, { kind: "write", value: first });
+      }
     }
     for (const child of parts) visit(child, bindings);
   };
