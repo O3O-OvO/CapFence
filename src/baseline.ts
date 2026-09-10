@@ -1,6 +1,7 @@
 import type { Baseline, BaselineCapability, Capability, CapabilityChange, DiffResult, Finding, ScanResult } from "./types.js";
 import { capabilityFingerprint } from "./analyzer.js";
 import { normalizeScope } from "./utils/text.js";
+import { normalizeExclusions } from "./discovery.js";
 
 export function toBaseline(result: ScanResult, generatedAt = new Date().toISOString()): Baseline {
   const seen = new Set<string>();
@@ -15,7 +16,7 @@ export function toBaseline(result: ScanResult, generatedAt = new Date().toISOStr
   }
   capabilities.sort((a, b) => capabilityFingerprint(a).localeCompare(capabilityFingerprint(b)));
   const findings = [...new Set(result.findings.map(findingFingerprint))].sort();
-  return { schemaVersion: 1, generatedAt, capabilities, ...(findings.length > 0 ? { findings } : {}) };
+  return { schemaVersion: 1, generatedAt, capabilities, ...(result.excludedPaths?.length ? { excludedPaths: result.excludedPaths } : {}), ...(findings.length > 0 ? { findings } : {}) };
 }
 
 export function findingFingerprint(finding: Pick<Finding, "id" | "capabilityFingerprints">): string {
@@ -43,6 +44,7 @@ export function scopeWidened(previous: string, current: string, kind?: Capabilit
 }
 
 export function diffBaseline(previous: Baseline, current: ScanResult): DiffResult {
+  if (JSON.stringify(normalizeExclusions(previous.excludedPaths)) !== JSON.stringify(normalizeExclusions(current.excludedPaths))) throw new Error("Baseline exclusions differ from scan exclusions; use the same --exclude paths or review and regenerate the baseline.");
   const currentBaseline = toBaseline(current);
   const previousByKind = new Map<string, BaselineCapability[]>();
   const previousFingerprints = new Set<string>();

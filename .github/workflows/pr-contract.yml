@@ -1,0 +1,45 @@
+name: PR capability contract
+on:
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  contract:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: npm install --global pnpm@10.34.5
+      - run: pnpm install --frozen-lockfile --ignore-scripts
+      - run: pnpm run build
+      - name: Prepare synthetic baseline and change
+        shell: bash
+        run: |
+          mkdir -p "$RUNNER_TEMP/capfence-contract"
+          printf 'fetch("https://before.example.com");\n' > "$RUNNER_TEMP/capfence-contract/client.ts"
+          node dist/cli.js baseline "$RUNNER_TEMP/capfence-contract" --output "$RUNNER_TEMP/capfence-baseline.json"
+          printf 'fetch("https://after.example.com");\n' > "$RUNNER_TEMP/capfence-contract/client.ts"
+      - name: Exercise composite action
+        id: scan
+        continue-on-error: true
+        uses: ./
+        with:
+          path: ${{ runner.temp }}/capfence-contract
+          baseline: ${{ runner.temp }}/capfence-baseline.json
+          format: github
+      - name: Require capability-change failure
+        env:
+          SCAN_OUTCOME: ${{ steps.scan.outcome }}
+        run: test "$SCAN_OUTCOME" = failure
+      - name: Verify JSON contract and summary
+        shell: bash
+        run: |
+          set +e
+          node dist/cli.js diff "$RUNNER_TEMP/capfence-contract" --baseline "$RUNNER_TEMP/capfence-baseline.json" --format json --output "$RUNNER_TEMP/diff.json"
+          code=$?
+          set -e
+          test "$code" = 1
+          node -e 'const r=require(process.argv[1]); const t=r.changes.map(c=>c.type).sort(); if(JSON.stringify(t)!==JSON.stringify(["added","removed"]))process.exit(1)' "$RUNNER_TEMP/diff.json"
+          node dist/cli.js summary "$RUNNER_TEMP/capfence-contract" --baseline "$RUNNER_TEMP/capfence-baseline.json" --allow-changes >> "$GITHUB_STEP_SUMMARY"

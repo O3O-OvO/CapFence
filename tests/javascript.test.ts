@@ -3,6 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { scanTarget } from "../src/analyzer.js";
+import { diffBaseline, toBaseline } from "../src/baseline.js";
 
 function scan(content: string, extension = "ts") {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), "capfence-js-"));
@@ -15,6 +16,23 @@ function scan(content: string, extension = "ts") {
 }
 
 describe("JavaScript AST analysis", () => {
+  it.each(["exec", "execSync"])("reports executable replacements in %s baseline diffs", (method) => {
+    const run = (binary: string) => scan(`import { ${method} } from 'node:child_process'; ${method}('${binary} --version');`);
+    const previous = toBaseline(run("git"));
+    const current = run("python");
+    expect(current.findings).toEqual([]);
+    expect(diffBaseline(previous, current).changes).toEqual(expect.arrayContaining([
+      expect.objectContaining({ type: "added", current: expect.objectContaining({ scope: "binary:python" }) }),
+      expect.objectContaining({ type: "removed", previous: [expect.objectContaining({ scope: "binary:git" })] }),
+    ]));
+  });
+
+  it("preserves quoted executable paths without interpreting expansions as binaries", () => {
+    const commands = ['"/opt/My Tool/tool" --version', '$TOOL --version', '$(which tool) --version', 'MODE=test tool'];
+    const result = scan(`import { execSync } from 'child_process';\n${commands.map(command => `execSync(${JSON.stringify(command)});`).join("\n")}`);
+    expect(result.capabilities.filter(item => item.scope.startsWith("binary:")).map(item => item.scope)).toEqual(["binary:/opt/My Tool/tool"]);
+  });
+
   it("detects unshadowed multiline eval and Function call and constructor forms", () => {
     const result = scan("eval(\n  input\n);\nFunction('return 1');\nnew Function(\n  source\n);");
     expect(result.findings.filter((item) => item.id === "CF-EXEC-001").map((item) => item.location.startLine)).toEqual([1, 4, 5]);

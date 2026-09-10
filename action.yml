@@ -2,6 +2,10 @@ name: CapFence
 description: Detect capability changes and deterministic security risks in AI agent skills and MCP configurations.
 author: O3O-OvO
 inputs:
+  exclude:
+    description: Newline-separated relative file or directory paths to exclude (no globs).
+    required: false
+    default: ""
   path:
     description: Directory or file to scan.
     required: false
@@ -59,6 +63,7 @@ runs:
       shell: bash
       env:
         CAPFENCE_TARGET: ${{ inputs.path }}
+        CAPFENCE_EXCLUDE: ${{ inputs.exclude }}
         CAPFENCE_FORMAT: ${{ inputs.format }}
         CAPFENCE_BASELINE: ${{ inputs.baseline }}
         CAPFENCE_POLICY: ${{ inputs.policy }}
@@ -70,6 +75,10 @@ runs:
       run: |
         set -euo pipefail
         args=(scan "$CAPFENCE_TARGET" --format "$CAPFENCE_FORMAT" --fail-on "$CAPFENCE_FAIL_ON")
+        while IFS= read -r excluded; do
+          excluded="${excluded%$'\r'}"
+          if [[ -n "$excluded" ]]; then args+=(--exclude "$excluded"); fi
+        done <<< "$CAPFENCE_EXCLUDE"
         if [[ -n "$CAPFENCE_BASELINE" ]]; then args+=(--baseline "$CAPFENCE_BASELINE"); fi
         if [[ -n "$CAPFENCE_POLICY" ]]; then args+=(--policy "$CAPFENCE_POLICY"); fi
         if [[ "$CAPFENCE_FAIL_EXISTING" == "true" ]]; then args+=(--fail-existing); fi

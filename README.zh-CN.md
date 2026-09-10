@@ -60,9 +60,18 @@ node dist/cli.js scan . --format sarif --output capfence.sarif
 node dist/cli.js scan . --format github
 ```
 
-`npx capfence` 需要在 npm 发布后才能用于任意外部目录；在发布前，请使用本地构建的 `node dist/cli.js`。
+已发布 npm 包 `@brian12138/capfence@0.1.0`。无需克隆仓库即可运行：
+
+```bash
+npx @brian12138/capfence@0.1.0 scan path/to/project
+npm install --save-dev --save-exact @brian12138/capfence@0.1.0
+```
+
+生产自动化应固定经过审查的版本，不要使用未经审查的浮动版本。
 
 支持的输入包括 Markdown Skill/指令文件、JSON/JSONC、YAML、JavaScript/TypeScript、Python、Shell/PowerShell/Command 脚本、`package.json` 与 Dockerfile。Markdown 仅检查显式标注为 Shell 或 PowerShell 的代码块。JavaScript/TypeScript 分析使用 TypeScript 编译器 AST，识别受支持 API 的导入别名和跨行调用，但不进行全程序分析。TOML 和 `.env` 不属于支持格式。
+
+Python 使用 Lezer 语法解析器，通过有限的导入和客户端绑定跟踪识别 requests、httpx、urllib 调用；不解析任意数据流或全部 Python 名称绑定语义，无效或不支持的语法会产生分析限制诊断。JavaScript/TypeScript 文件 API 会记录字面量路径或未知路径的 `dynamic` 范围，覆盖常见读写、目录和重命名操作。未知进程参数仍保留审查信号，但固定可执行文件且未启用 Shell 的调用不再标为动态 Shell。Docker 命令规则检查执行指令，不检查镜像名或标签。这些变化可能为旧基线增加能力，重新生成基线前应审查差异。
 
 扫描逐个发现并分析文件，不会一次性将整个目录树内容加载到内存。跳过的符号链接、读取或目录遍历失败、解析失败，以及超过 2 MiB 的受支持文件都会产生 `analysisLimited` 诊断。有意忽略的依赖/构建目录不在扫描范围内，本身不会导致分析不完整。
 

@@ -30,6 +30,7 @@ describe("CLI black-box contract", () => {
   });
 
   it("returns version and scans JSON successfully", () => {
+    expect(runCli('scan', fixtures, '--exclude', '../outside').status).toBe(2);
     const version = runCli("--version");
     expect(version.status).toBe(0);
     expect(version.stdout.trim()).toBe("0.1.0");
@@ -42,6 +43,7 @@ describe("CLI black-box contract", () => {
   });
 
   it("writes output files and fails on critical findings", () => {
+
     const outputPath = path.join(tempRoot, "scan.json");
     const risky = runCli("scan", path.join(fixtures, "risky", "composite"), "--format", "json", "--fail-on", "critical", "--output", outputPath);
     expect(risky.status).toBe(1);

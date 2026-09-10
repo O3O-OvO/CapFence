@@ -30,6 +30,7 @@ export function buildPermissionSummary(result: ScanResult, changes: CapabilityCh
     target: result.target,
     baseline: hasBaseline,
     scannedFiles: result.scannedFiles,
+    excludedPaths: result.excludedPaths,
     analysisLimited: result.analysisLimited.map((item) => ({ ...item })),
     changes: {
       added: changes.filter((change) => change.type === "added").length,
@@ -59,6 +60,7 @@ export function formatPermissionSummaryMarkdown(summary: PermissionSummary): str
     : changed > 0 || summary.policyViolations > 0 ? "Permission changes or policy violations detected"
     : summary.baseline ? "No new permission changes detected" : "No baseline provided; permission changes not assessed";
   const lines = ["## CapFence permission summary", "", `**Target:** ${escapeMarkdown(summary.target)}`, `**Baseline:** ${summary.baseline ? "yes" : "not provided"}`, `**Files scanned:** ${summary.scannedFiles ?? "unknown"}`, `**Status:** ${status}`, "", `Changes: **${summary.changes.added} added**, **${summary.changes.widened} widened**, **${summary.changes.removed} removed**.`];
+  if (summary.excludedPaths?.length) lines.push(`Excluded paths: ${escapeMarkdown(JSON.stringify(summary.excludedPaths))}`);
   if (summary.entries.length > 0) {
     lines.push("", "| Type | Capability | Scope | Source | Locations | Severity | Reason |", "| --- | --- | --- | --- | --- | --- | --- |");
     for (const entry of summary.entries) {

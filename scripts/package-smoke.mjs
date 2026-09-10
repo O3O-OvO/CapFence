@@ -29,17 +29,20 @@ try {
   const installed = path.join(consumer, "node_modules", "@brian12138", "capfence");
   const manifest = JSON.parse(fs.readFileSync(path.join(installed, "package.json"), "utf8"));
   assert.ok(manifest.dependencies.typescript, "AST parser must be a runtime dependency");
+  assert.ok(manifest.dependencies["@lezer/python"], "Python parser must be a runtime dependency");
   const cli = path.join(installed, manifest.bin.capfence);
   assert.ok(fs.readFileSync(cli, "utf8").startsWith("#!/usr/bin/env node"));
   run(process.execPath, [cli, "--version"], consumer);
   const input = path.join(consumer, "input");
   fs.mkdirSync(input);
   fs.writeFileSync(path.join(input, "client.ts"), 'fetch(\n  "https://api.example.com"\n);\n');
+  fs.writeFileSync(path.join(input, "client.py"), 'import httpx\nasync def run():\n    async with streams() as (a, b):\n        httpx.get("https://python.example.com")\n');
   const report = path.join(consumer, "report.json");
   run(process.execPath, [cli, "scan", input, "--format", "json", "--fail-on-incomplete", "--output", report], consumer);
   const result = JSON.parse(fs.readFileSync(report, "utf8"));
   assert.equal(result.analysisLimited.length, 0);
   assert.ok(result.capabilities.some(item => item.kind === "network.connect" && item.scope === "https|api.example.com"));
+  assert.ok(result.capabilities.some(item => item.kind === "network.connect" && item.scope === "https|python.example.com"));
   console.log("Package installation smoke test passed.");
 } finally {
   fs.rmSync(temp, { recursive: true, force: true });

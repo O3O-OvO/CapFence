@@ -1,7 +1,8 @@
 import path from "node:path";
 
-import { iterateFiles, type SourceFile } from "./discovery.js";
+import { iterateFiles, normalizeExclusions, type SourceFile } from "./discovery.js";
 import { inspectJavaScript } from "./javascript.js";
+import { inspectPython } from "./python.js";
 import { parseJsonLike, parseYaml, walkValues, type ParsedStructured } from "./parsers.js";
 import { locationFromOffsets, locationForLine } from "./utils/locations.js";
 import { clip, isDynamic, normalizeScope, redactSecrets } from "./utils/text.js";
@@ -188,7 +189,9 @@ function analyzeCommandText(context: AnalyzeContext, capabilities: Capability[],
 
     if (/\b(?:npx|pnpm\s+dlx|yarn\s+dlx|bunx|uvx|pipx\s+run)\b/i.test(effective)) {
       const runner = effective.match(/\b(?:npx|pnpm\s+dlx|yarn\s+dlx|bunx|uvx|pipx\s+run)\b[^\s]*/i)?.[0] ?? "runner";
-      const packageRef = effective.replace(/^.*?\b(?:npx|pnpm\s+dlx|yarn\s+dlx|bunx|uvx|pipx\s+run)\b\s*/i, "").trim().split(/\s+/)[0] ?? "unknown";
+      const runnerArguments = effective.replace(/^.*?\b(?:npx|pnpm\s+dlx|yarn\s+dlx|bunx|uvx|pipx\s+run)\b\s*/i, "").trim();
+      // Skip known standalone flags only; unknown options may consume a value.
+      const packageRef = runnerArguments.replace(/^(?:(?:--yes|-y|--no-install|--quiet|-q|--)\s+)*/, "").split(/\s+/)[0]?.replace(/^(['"])(.*)\1$/, "$2") ?? "unknown";
       const pinned = /(?:@\d+\.\d+\.\d+(?:[-+][^\s]+)?$|==\d+\.\d+\.\d+$)/.test(packageRef);
       const lifecycle = addCapability(capabilities, current, "package.lifecycle", `${runner}:runtime-fetch`, trimmed, loc);
       if (!pinned && !/--no-install\b/.test(effective)) addFinding(findings, "CF-PKG-001", "medium", "Unpinned package execution", "A package runner may resolve and execute a different version on each run.", "Pin the exact package version and verify its integrity.", loc, trimmed, [lifecycle]);
@@ -359,7 +362,13 @@ function analyzeSource(source: SourceFile, root: string, capabilities: Capabilit
     return;
   }
   if (/Dockerfile|\.dockerfile$/i.test(path.basename(file))) {
-    analyzeCommandText({ file, content: source.content, root, source: "build" }, capabilities, findings);
+    let continued = false;
+    const commands = source.content.split(/\r?\n/).map(line => {
+      const executable = continued || /^\s*(?:RUN|CMD|ENTRYPOINT|SHELL)\s/i.test(line);
+      continued = executable && /\\\s*$/.test(line);
+      return executable ? line.replace(/^(\s*)(?:RUN|CMD|ENTRYPOINT|SHELL)(\s+)/i, "$1$2") : "";
+    }).join("\n");
+    analyzeCommandText({ file, content: commands, root, source: "build" }, capabilities, findings);
     if (/--privileged|--pid=host|--network=host|--cap-add(?:=|\s+)SYS_ADMIN|\.\.\/var\/run\/docker\.sock|security=insecure/i.test(source.content)) {
       const match = /--privileged|--pid=host|--network=host|--cap-add(?:=|\s+)SYS_ADMIN|docker\.sock|security=insecure/i.exec(source.content);
       const loc = match ? lineLocation({ file, content: source.content, root, source: "build" }, match.index ?? 0, match[0].length) : locationForLine(file, source.content, 1);
@@ -372,17 +381,20 @@ function analyzeSource(source: SourceFile, root: string, capabilities: Capabilit
     analyzeCommandText({ file, content: source.content, root, source: "runtime" }, capabilities, findings);
     return;
   }
-  if (/\.(js|mjs|cjs|ts|mts|cts)$/i.test(file)) {
+  if (/\.(js|mjs|cjs|ts|mts|cts|py)$/i.test(file)) {
     const context: AnalyzeContext = { file, content: source.content, root, source: "runtime" };
-    const inspected = inspectJavaScript(file, source.content);
+    const inspected = /\.py$/i.test(file) ? inspectPython(source.content) : inspectJavaScript(file, source.content);
     for (const message of inspected.issues) analysisLimited.push({ file, message });
     for (const use of inspected.uses) {
       const loc = lineLocation(context, use.start, use.end - use.start);
       if (use.kind === "process") {
-        const process = addCapability(capabilities, context, "process.execute", use.dynamic ? "shell:dynamic" : use.value ? `binary:${use.value}` : "process", use.text, loc);
+        const shell = "shell" in use && use.shell;
+        const process = addCapability(capabilities, context, "process.execute", use.dynamic && shell ? "shell:dynamic" : use.value ? `binary:${use.value}` : use.dynamic ? "dynamic-binary" : "process", use.text, loc);
         if (use.dynamic) {
           const dynamic = addCapability(capabilities, context, "dynamic.execute", "process-input", use.text, loc);
-          addFinding(findings, "CF-EXEC-001", "high", "Dynamic process execution", "A process API receives an argument that cannot be resolved statically.", "Use an allowlisted executable and pass structured arguments without a shell.", loc, use.text, [process, dynamic]);
+          const interpreter = use.value !== undefined && /(?:^|[\\/])(?:node|python[\d.]*|ruby|perl|php|deno|bun)(?:\.exe)?$/i.test(use.value);
+          const severity = shell || interpreter || !use.value ? "high" : "medium";
+          addFinding(findings, "CF-EXEC-001", severity, shell ? "Dynamic shell execution" : "Unresolved process arguments", shell ? "A shell receives input that cannot be resolved statically." : "Process arguments cannot be resolved statically; this does not establish shell execution or injection.", "Use an allowlisted executable and validate arguments; avoid passing untrusted input to interpreters.", loc, use.text, [process, dynamic]);
         }
         if (use.command !== undefined) analyzeCommandText({ ...context, content: use.command, lineOffset: loc.startLine - 1, columnOffset: loc.startColumn - 1 }, capabilities, findings);
       } else if (use.kind === "interpreter") {
@@ -392,8 +404,9 @@ function analyzeSource(source: SourceFile, root: string, capabilities: Capabilit
       } else if (use.kind === "network") {
         if (use.value !== undefined) addNetworkCapability(capabilities, context, use.value, loc);
         else addCapability(capabilities, context, "network.connect", "dynamic", use.text, loc);
-      } else if (use.kind === "read" && use.value !== undefined && SENSITIVE_PATHS.test(use.value)) {
-        addCapability(capabilities, context, "filesystem.read", "sensitive-path", use.text, loc);
+      } else if (use.kind === "read" || use.kind === "write") {
+        const scope = use.value === undefined ? "dynamic" : SENSITIVE_PATHS.test(use.value) ? "sensitive-path" : use.value;
+        addCapability(capabilities, context, use.kind === "read" ? "filesystem.read" : "filesystem.write", scope, use.text, loc);
       } else if (use.kind === "literal") {
         for (const token of TOKEN_PATTERNS) {
           const match = token.re.exec(use.value ?? "");
@@ -406,40 +419,14 @@ function analyzeSource(source: SourceFile, root: string, capabilities: Capabilit
     }
     return;
   }
-  if (/\.py$/i.test(file)) {
-    const context: AnalyzeContext = { file, content: source.content, root, source: "runtime" };
-    const lines = source.content.split(/\r?\n/);
-    for (let i = 0; i < lines.length; i += 1) {
-      const line = lines[i] ?? "";
-      if (/^\s*(?:\/\/|#|\*)/.test(line)) continue;
-      const current = { ...context, content: line, lineOffset: i };
-      const loc = lineLocation(current, 0, Math.max(1, line.length));
-      const processApi = /(?:child_process\.)?(?:exec|execFile|spawn|spawnSync)\s*\(/i.test(line)
-        || /(?:subprocess\.(?:run|popen|call|check_call|check_output)|os\.system)\s*\(/i.test(line);
-      if (processApi) {
-        const dynamic = isDynamic(line) || /process\.env|os\.environ|\b(?:input|args|command|prompt)\b/i.test(line);
-        const process = addCapability(capabilities, current, "process.execute", dynamic ? "shell:dynamic" : "process", line, loc);
-        if (dynamic) {
-          const dyn = addCapability(capabilities, current, "dynamic.execute", "process-input", line, loc);
-          addFinding(findings, "CF-EXEC-001", "high", "Dynamic process execution", "A process API is called with a value that appears to be externally controlled.", "Use an allowlisted executable and pass structured arguments without a shell.", loc, line, [process, dyn]);
-        }
-      }
-      if (SENSITIVE_PATHS.test(line) && /(?:readFile|read_text|open\s*\(|cat\s+)/i.test(line)) addCapability(capabilities, current, "filesystem.read", "sensitive-path", line, loc);
-      if (/(?:fetch|axios\.(?:get|post|put|delete)|requests?\.(?:get|post|put|delete)|urllib\.request\.urlopen|http\.request)\s*\(/i.test(line)) {
-        const url = line.match(/https?:\/\/[^\s'"`)>]+/i)?.[0];
-        if (url) addNetworkCapability(capabilities, current, url, loc);
-        else addCapability(capabilities, current, "network.connect", isDynamic(line) ? "dynamic" : "runtime", line, loc);
-      }
-      analyzeCommandText(current, capabilities, findings);
-    }
-  }
 }
 
-export function scanTarget(target: string): ScanResult {
+export function scanTarget(target: string, options: { exclude?: string[] } = {}): ScanResult {
+  const excludedPaths = normalizeExclusions(options.exclude);
   const capabilities: Capability[] = [];
   const findings: Finding[] = [];
   const analysisLimited: ScanResult["analysisLimited"] = [];
-  const discovered = iterateFiles(target, { onIssue: (issue) => analysisLimited.push(issue) });
+  const discovered = iterateFiles(target, { exclude: excludedPaths, onIssue: (issue) => analysisLimited.push(issue) });
   let scannedFiles = 0;
   for (const source of discovered.files) {
     scannedFiles += 1;
@@ -453,6 +440,7 @@ export function scanTarget(target: string): ScanResult {
     schemaVersion: 1,
     target: path.resolve(target),
     scannedFiles,
+    ...(excludedPaths.length ? { excludedPaths } : {}),
     capabilities,
     findings,
     analysisLimited,

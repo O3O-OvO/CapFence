@@ -14,7 +14,7 @@ const VERSION = "0.1.0";
 const args = process.argv.slice(2);
 const REPORT_FORMATS = new Set<ReportFormat>(["text", "json", "sarif", "github"]);
 const SEVERITY_LEVELS = new Set<Severity>(["critical", "high", "medium", "low", "info"]);
-const VALUE_OPTIONS = new Set(["--format", "--baseline", "--policy", "--fail-on", "--output"]);
+const VALUE_OPTIONS = new Set(["--format", "--baseline", "--policy", "--fail-on", "--output", "--exclude"]);
 const BOOLEAN_OPTIONS = new Set(["--fail-existing", "--allow-changes", "--fail-on-incomplete"]);
 
 function usage(): string {
@@ -30,6 +30,7 @@ Usage:
   capfence summary <path> [options]    Export a pull request permission summary
 
 Options:
+  --exclude <relative-path>           Exclude a file/directory (repeatable, no globs)
   --format text|json|sarif|github       Output format (default: text)
   --baseline <file>                    Baseline JSON for diff/policy evaluation
   --policy <file>                      YAML policy for capability deny rules
@@ -62,7 +63,7 @@ function validateArguments(): string {
       continue;
     }
     if (VALUE_OPTIONS.has(argument)) {
-      if (seen.has(argument)) throw new Error(`Duplicate option: ${argument}`);
+      if (seen.has(argument) && argument !== "--exclude") throw new Error(`Duplicate option: ${argument}`);
       const value = args[index + 1];
       if (!value || value.startsWith("--")) throw new Error(`${argument} requires a value`);
       seen.add(argument);
@@ -81,6 +82,7 @@ function readBaseline(filePath: string): Baseline {
   const invalid = (): never => { throw new Error(`Invalid baseline: ${filePath}`); };
   if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return invalid();
   const value = parsed as Record<string, unknown>;
+  if (value.excludedPaths !== undefined && (!Array.isArray(value.excludedPaths) || value.excludedPaths.some(item => typeof item !== "string"))) return invalid();
   if (value.schemaVersion !== 1 || typeof value.generatedAt !== "string" || !Array.isArray(value.capabilities)) return invalid();
   const sources = new Set(["runtime", "configuration", "lifecycle", "build", "instruction"]);
   for (const item of value.capabilities) {
@@ -117,7 +119,12 @@ function main(): void {
   if (command === "diff" && !option("--baseline")) throw new Error("diff requires --baseline <file>");
   const thresholdValue = option("--fail-on");
   if (thresholdValue && !SEVERITY_LEVELS.has(thresholdValue as Severity)) throw new Error(`Unsupported severity threshold: ${thresholdValue}`);
-  const result = scanTarget(target);
+  const exclude: string[] = [];
+  for (let index = 1; index < args.length; index++) {
+    if (args[index] === "--exclude") exclude.push(args[index + 1]!);
+    if (VALUE_OPTIONS.has(args[index]!)) index++;
+  }
+  const result = scanTarget(target, { exclude });
   if (has("--fail-on-incomplete") && result.analysisLimited.length > 0) process.exitCode = 1;
   if (command === "graph") {
     const baselinePath = option("--baseline");

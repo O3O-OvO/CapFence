@@ -16,7 +16,7 @@
     "LICENSE"
   ],
   "scripts": {
-    "build": "tsc -p tsconfig.json",
+    "build": "tsc -p tsconfig.json && node scripts/bundle-python.mjs",
     "check": "tsc --noEmit -p tsconfig.json",
     "test": "vitest run",
     "pretest": "pnpm run build",
@@ -50,14 +50,17 @@
   },
   "homepage": "https://github.com/O3O-OvO/CapFence#readme",
   "dependencies": {
+    "@lezer/python": "^1.1.19",
     "jsonc-parser": "^3.3.1",
     "typescript": "^5.7.3",
     "yaml": "^2.7.0"
   },
   "devDependencies": {
+    "@lezer/generator": "1.8.0",
     "@remotion/cli": "4.0.522",
     "@remotion/player": "4.0.522",
     "@types/node": "^22.10.2",
+    "esbuild": "0.28.1",
     "remotion": "4.0.522",
     "vitest": "^3.0.5"
   }

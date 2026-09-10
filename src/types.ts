@@ -46,6 +46,7 @@ export interface AnalysisLimited {
 }
 
 export interface ScanResult {
+  excludedPaths?: string[];
   schemaVersion: 1;
   target: string;
   scannedFiles: number;
@@ -55,6 +56,7 @@ export interface ScanResult {
 }
 
 export interface Baseline {
+  excludedPaths?: string[];
   schemaVersion: 1;
   generatedAt: string;
   capabilities: BaselineCapability[];
@@ -117,6 +119,7 @@ export interface PermissionSummaryEntry {
 }
 
 export interface PermissionSummary {
+  excludedPaths?: string[];
   schemaVersion: 1;
   target: string;
   baseline: boolean;
@@ -155,6 +158,7 @@ export interface CapabilityGraphEdge {
 }
 
 export interface CapabilityGraph {
+  excludedPaths?: string[];
   schemaVersion: 1;
   target: string;
   analysisLimited?: AnalysisLimited[];

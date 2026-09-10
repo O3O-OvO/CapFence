@@ -1,7 +1,8 @@
 import ts from "typescript";
 
 export interface JavaScriptUse {
-  kind: "process" | "network" | "read" | "literal" | "interpreter";
+  kind: "process" | "network" | "read" | "write" | "literal" | "interpreter";
+  shell?: boolean;
   start: number;
   end: number;
   text: string;
@@ -11,6 +12,13 @@ export interface JavaScriptUse {
 }
 
 type Binding = { module: string; member?: string };
+
+function commandExecutable(command: string | undefined): string | undefined {
+  if (!command) return undefined;
+  // Recognize only a literal leading executable; shell expansions stay unresolved.
+  const match = /^\s*(?:"([^"$`%]+)"|'([^'$`%]+)'|([A-Za-z0-9_./\\:-]+))(?=\s|$)/.exec(command);
+  return match?.[1] ?? match?.[2] ?? match?.[3];
+}
 const processMethods = new Set(["exec", "execSync", "execFile", "execFileSync", "spawn", "spawnSync", "fork"]);
 const networkMethods = new Set(["get", "post", "put", "patch", "delete", "head", "options", "request"]);
 
@@ -114,13 +122,26 @@ export function inspectJavaScript(file: string, content: string): { uses: JavaSc
           && (!ts.isArrayLiteralExpression(args) || values.some((value) => value === undefined)));
         // Only command-string APIs and known shell executables expose command text to shell rules.
         const shell = first !== undefined && /(?:^|[\\/])(?:ba|z|da)?sh$|(?:^|[\\/])(?:pwsh|powershell|cmd)(?:\.exe)?$/i.test(first);
-        add(node, { kind: "process", value: shellCommand ? undefined : first, dynamic, command: shellCommand ? first : shell && !dynamic ? [first, ...values].join(" ") : undefined });
+        add(node, { kind: "process", shell: shellCommand || !!shellEnabled || shell, value: shellCommand ? commandExecutable(first) : first, dynamic, command: shellCommand ? first : shell && !dynamic ? [first, ...values].join(" ") : undefined });
       }
       const globalFetch = ts.isIdentifier(node.expression) && node.expression.text === "fetch" && !checker.getSymbolAtLocation(node.expression);
       if (globalFetch || binding?.module === "axios" && (!binding.member || networkMethods.has(binding.member)) || (binding?.module === "http" || binding?.module === "https") && ["get", "request"].includes(binding.member ?? "")) {
         add(node, { kind: "network", value: first, dynamic: first === undefined });
       }
-      if ((binding?.module === "fs" || binding?.module === "fs/promises") && ["readFile", "readFileSync", "open", "openSync"].includes(binding.member ?? "")) add(node, { kind: "read", value: first });
+      if (binding?.module === "fs" || binding?.module === "fs/promises") {
+        const method = (binding.member ?? "").replace(/Sync$/, "");
+        if (["readFile", "readdir", "stat", "lstat", "realpath", "readlink", "access", "createReadStream"].includes(method)) add(node, { kind: "read", value: first });
+        if (["writeFile", "appendFile", "mkdir", "rmdir", "rm", "unlink", "chmod", "chown", "truncate", "createWriteStream"].includes(method)) add(node, { kind: "write", value: first });
+        if (["rename", "copyFile", "cp", "link", "symlink"].includes(method)) {
+          add(node, { kind: method === "rename" ? "write" : "read", value: first });
+          add(node, { kind: "write", value: literal(node.arguments[1]) });
+        }
+        if (method === "open") {
+          const flags = literal(node.arguments[1]);
+          if (!flags || flags.startsWith("r") || flags.includes("+")) add(node, { kind: "read", value: first });
+          if (!flags || /[wa+]/.test(flags)) add(node, { kind: "write", value: first });
+        }
+      }
     }
     ts.forEachChild(node, visit);
   };
