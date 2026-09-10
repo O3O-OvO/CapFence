@@ -23,6 +23,7 @@ export interface DiscoveryIssue {
 }
 
 export interface DiscoveryOptions {
+  exclude?: string[];
   maxFileBytes?: number;
   onIssue?: (issue: DiscoveryIssue) => void;
 }
@@ -34,6 +35,7 @@ export function isSupportedPath(filePath: string, content = ""): boolean {
 }
 
 export function iterateFiles(target: string, options: DiscoveryOptions = {}): { root: string; files: Iterable<SourceFile> } {
+  const exclusions = normalizeExclusions(options.exclude);
   const maxFileBytes = options.maxFileBytes ?? 2 * 1024 * 1024;
   if (!Number.isSafeInteger(maxFileBytes) || maxFileBytes < 1) throw new Error("maxFileBytes must be a positive integer");
   const absoluteTarget = path.resolve(target);
@@ -44,8 +46,10 @@ export function iterateFiles(target: string, options: DiscoveryOptions = {}): { 
   const root = stat.isFile() ? path.dirname(absoluteTarget) : absoluteTarget;
   const relative = (file: string): string => path.relative(root, file).replaceAll("\\", "/") || path.basename(file);
   const issue = (file: string, message: string): void => options.onIssue?.({ file: relative(file), message });
+  const excluded = (file: string): boolean => exclusions.some(item => relative(file) === item || relative(file).startsWith(`${item}/`));
 
   function readSource(file: string): SourceFile | undefined {
+    if (excluded(file)) return;
     let info: fs.Stats;
     try { info = fs.lstatSync(file); }
     catch { issue(file, "Unable to inspect file."); return; }
@@ -68,6 +72,7 @@ export function iterateFiles(target: string, options: DiscoveryOptions = {}): { 
     entries.sort((a, b) => a.name.localeCompare(b.name));
     for (const entry of entries) {
       const file = path.join(directory, entry.name);
+      if (excluded(file)) continue;
       if (entry.isSymbolicLink()) {
         issue(file, "Symbolic link was not followed.");
       } else if (entry.isDirectory()) {
@@ -80,6 +85,7 @@ export function iterateFiles(target: string, options: DiscoveryOptions = {}): { 
   }
 
   function* singleFile(): Generator<SourceFile> {
+    if (excluded(absoluteTarget)) return;
     const source = readSource(absoluteTarget);
     if (source) yield source;
     else if (!isSupportedPath(absoluteTarget)) issue(absoluteTarget, "Target is not a supported source file.");
@@ -88,6 +94,14 @@ export function iterateFiles(target: string, options: DiscoveryOptions = {}): { 
 }
 
 // Retain the materialized API for callers that need random access to source files.
+export function normalizeExclusions(values: string[] = []): string[] {
+  return [...new Set(values.map(value => {
+    if (typeof value !== "string") throw new Error("Exclusions must be relative paths");
+    const normalized = value.replaceAll("\\", "/").replace(/^\.\//, "").replace(/\/+$/, "");
+    if (!normalized || /[\x00-\x1f:*?\[\]{}!]/.test(normalized) || normalized.startsWith("/") || normalized.split("/").some(part => !part || part === "." || part === "..")) throw new Error(`Invalid exclusion path: ${JSON.stringify(value)}`);
+    return normalized;
+  }))].sort();
+}
 export function discoverFiles(target: string, options: DiscoveryOptions = {}): { root: string; files: SourceFile[] } {
   const discovered = iterateFiles(target, options);
   return { root: discovered.root, files: [...discovered.files].sort((a, b) => a.relativePath.localeCompare(b.relativePath)) };

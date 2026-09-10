@@ -28,6 +28,7 @@ export function formatText(result: ScanResult, changes?: CapabilityChange[], pol
   const lines: string[] = [];
   lines.push(`CapFence scan: ${result.target}`);
   lines.push(`Files scanned: ${result.scannedFiles}`);
+  if (result.excludedPaths?.length) lines.push(`Excluded paths: ${JSON.stringify(result.excludedPaths)}`);
   lines.push(`Capabilities: ${result.capabilities.length}`);
   lines.push("");
   if (result.findings.length === 0) lines.push(result.analysisLimited.length > 0 ? "No deterministic security findings reported; analysis is incomplete." : "No deterministic security findings.");
@@ -120,7 +121,7 @@ export function formatSarif(result: ScanResult, toolVersion = "0.1.0", changes: 
           locations: [{ physicalLocation: { artifactLocation: { uri: item.file } } }],
         })),
       }],
-      properties: { analysisLimited: result.analysisLimited, scannedFiles: result.scannedFiles },
+      properties: { analysisLimited: result.analysisLimited, scannedFiles: result.scannedFiles, excludedPaths: result.excludedPaths ?? [] },
       results: [
         ...result.findings.map((finding) => ({
           ruleId: finding.id,
@@ -190,6 +191,7 @@ export function formatGithub(result: ScanResult, changes: CapabilityChange[] = [
   for (const item of result.analysisLimited) {
     output.push(`::warning file=${escapeCommandValue(item.file)},title=CF-ANALYSIS-LIMITED::${escapeCommandValue(`Analysis incomplete: ${item.message}`)}`);
   }
+  if (result.excludedPaths?.length) output.push(`::notice title=CF-SCAN-SCOPE::${escapeCommandValue(`Excluded paths: ${JSON.stringify(result.excludedPaths)}`)}`);
   const summary = summarizeFindings(result);
   output.push(`CapFence: ${summary.critical} critical, ${summary.high} high, ${summary.medium} medium, ${summary.low} low finding(s).`);
   if (changes.length > 0) output.push(`Capability changes: ${changes.filter((change) => change.type !== "removed").length} added/widened.`);

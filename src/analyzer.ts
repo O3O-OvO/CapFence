@@ -1,6 +1,6 @@
 import path from "node:path";
 
-import { iterateFiles, type SourceFile } from "./discovery.js";
+import { iterateFiles, normalizeExclusions, type SourceFile } from "./discovery.js";
 import { inspectJavaScript } from "./javascript.js";
 import { inspectPython } from "./python.js";
 import { parseJsonLike, parseYaml, walkValues, type ParsedStructured } from "./parsers.js";
@@ -392,7 +392,9 @@ function analyzeSource(source: SourceFile, root: string, capabilities: Capabilit
         const process = addCapability(capabilities, context, "process.execute", use.dynamic && shell ? "shell:dynamic" : use.value ? `binary:${use.value}` : use.dynamic ? "dynamic-binary" : "process", use.text, loc);
         if (use.dynamic) {
           const dynamic = addCapability(capabilities, context, "dynamic.execute", "process-input", use.text, loc);
-          addFinding(findings, "CF-EXEC-001", "high", shell ? "Dynamic shell execution" : "Unresolved process arguments", shell ? "A shell receives input that cannot be resolved statically." : "Process arguments cannot be resolved statically; this does not establish shell execution or injection.", "Use an allowlisted executable and validate arguments; avoid passing untrusted input to interpreters.", loc, use.text, [process, dynamic]);
+          const interpreter = use.value !== undefined && /(?:^|[\\/])(?:node|python[\d.]*|ruby|perl|php|deno|bun)(?:\.exe)?$/i.test(use.value);
+          const severity = shell || interpreter || !use.value ? "high" : "medium";
+          addFinding(findings, "CF-EXEC-001", severity, shell ? "Dynamic shell execution" : "Unresolved process arguments", shell ? "A shell receives input that cannot be resolved statically." : "Process arguments cannot be resolved statically; this does not establish shell execution or injection.", "Use an allowlisted executable and validate arguments; avoid passing untrusted input to interpreters.", loc, use.text, [process, dynamic]);
         }
         if (use.command !== undefined) analyzeCommandText({ ...context, content: use.command, lineOffset: loc.startLine - 1, columnOffset: loc.startColumn - 1 }, capabilities, findings);
       } else if (use.kind === "interpreter") {
@@ -419,11 +421,12 @@ function analyzeSource(source: SourceFile, root: string, capabilities: Capabilit
   }
 }
 
-export function scanTarget(target: string): ScanResult {
+export function scanTarget(target: string, options: { exclude?: string[] } = {}): ScanResult {
+  const excludedPaths = normalizeExclusions(options.exclude);
   const capabilities: Capability[] = [];
   const findings: Finding[] = [];
   const analysisLimited: ScanResult["analysisLimited"] = [];
-  const discovered = iterateFiles(target, { onIssue: (issue) => analysisLimited.push(issue) });
+  const discovered = iterateFiles(target, { exclude: excludedPaths, onIssue: (issue) => analysisLimited.push(issue) });
   let scannedFiles = 0;
   for (const source of discovered.files) {
     scannedFiles += 1;
@@ -437,6 +440,7 @@ export function scanTarget(target: string): ScanResult {
     schemaVersion: 1,
     target: path.resolve(target),
     scannedFiles,
+    ...(excludedPaths.length ? { excludedPaths } : {}),
     capabilities,
     findings,
     analysisLimited,
